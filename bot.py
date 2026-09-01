@@ -14,7 +14,7 @@ from telegram.ext import (
 
 # Configuration
 TOKEN = "8237192414:AAGC6N4dattjPSjBVT6bZLtP6R4LeARGLCw"
-CHANNEL_ID = "@your_private_channel_username_or_id"  # Replace with your channel ID
+CHANNEL_ID = "https://t.me/+-tWVy6mFLJozMmZl"  # Replace with your channel ID
 ADMIN_USER_ID = 123456789  # Replace with your Telegram Admin User ID
 SUBSCRIPTION_PRICE_STARS = 250  # Cost in Telegram Stars (XTR)
 SUBSCRIPTION_DAYS = 30
