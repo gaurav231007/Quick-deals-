@@ -12,8 +12,8 @@ from telegram.ext import (
     filters,
 )
 
-# Railway automatically loads environment variables
-TOKEN = os.getenv("TOKEN")
+# Safe fallback so it never crashes if Railway environment variables are missing
+TOKEN = os.getenv("TOKEN") or "8237192414:AAGC6N4dattjPSjBVT6bZLtP6R4LeARGLCw"
 ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", "5409176951"))
 
 logging.basicConfig(
@@ -206,9 +206,6 @@ async def check_subscriptions_job(context: ContextTypes.DEFAULT_TYPE):
 
 
 def main():
-    if not TOKEN:
-        raise ValueError("No TOKEN found in environment variables!")
-
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
