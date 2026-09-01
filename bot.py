@@ -1,7 +1,6 @@
 import os
 import logging
 from datetime import datetime, timedelta
-from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice
 from telegram.ext import (
     ApplicationBuilder,
@@ -13,7 +12,7 @@ from telegram.ext import (
     filters,
 )
 
-
+# Railway automatically loads environment variables
 TOKEN = os.getenv("TOKEN")
 ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", "5409176951"))
 
@@ -21,12 +20,11 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 
-# Configured with your actual channel numeric ID
 managed_channels = {
     "-1004487998151": {"price": 250, "days": 30}
 }
 
-subscriptions = {}  # Format: {user_id: {channel_id: expiry_datetime}}
+subscriptions = {}
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -228,4 +226,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-        
+    
