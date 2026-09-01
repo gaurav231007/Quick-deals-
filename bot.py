@@ -14,9 +14,9 @@ from telegram.ext import (
 
 # Configuration
 TOKEN = "8237192414:AAGC6N4dattjPSjBVT6bZLtP6R4LeARGLCw"
-CHANNEL_ID = "https://t.me/+-tWVy6mFLJozMmZl"  # Replace with your channel ID
-ADMIN_USER_ID = 123456789  # Replace with your Telegram Admin User ID
-SUBSCRIPTION_PRICE_STARS = 250  # Cost in Telegram Stars (XTR)
+CHANNEL_ID = "@your_private_channel_username_or_id"  # Replace with your actual channel username/ID
+ADMIN_USER_ID = 123456789  # Replace with your numeric ID once you get it
+SUBSCRIPTION_PRICE_STARS = 250  # Cost in Telegram Stars
 SUBSCRIPTION_DAYS = 30
 
 logging.basicConfig(
@@ -28,8 +28,8 @@ subscriptions = {}
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-
-    # This line temporarily shows your ID in chat so you can copy it
+    
+    # Shows your numeric User ID directly in Telegram
     await update.message.reply_text(f"Your Telegram User ID is: `{user.id}`", parse_mode="Markdown")
 
     keyboard = [
@@ -38,13 +38,26 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     if user.id == ADMIN_USER_ID:
         keyboard.append([InlineKeyboardButton("⚙️ Admin Panel", callback_data="admin_panel")])
-
+        
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
         f"Hello {user.first_name}! Welcome to the channel subscription bot.\n"
         f"Gain instant access to {CHANNEL_ID} for 30 days using Telegram Stars.",
         reply_markup=reply_markup,
     )
+
+
+async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+
+    if query.data == "buy_stars_sub":
+        title = "Private Channel Subscription"
+        description = f"30-day access to {CHANNEL_ID}"
+        payload = "channel_subscription_payload"
+        currency = "XTR"
+        prices = [LabeledPrice("Subscription", SUBSCRIPTION_PRICE_STARS)]
 
         await context.bot.send_invoice(
             chat_id=user_id,
