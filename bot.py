@@ -1,6 +1,7 @@
 import os
 import logging
 from datetime import datetime, timedelta
+from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice
 from telegram.ext import (
     ApplicationBuilder,
@@ -12,37 +13,40 @@ from telegram.ext import (
     filters,
 )
 
-# Configuration
-TOKEN = "8237192414:AAGC6N4dattjPSjBVT6bZLtP6R4LeARGLCw"
-CHANNEL_ID = "https://t.me/+E6RUaCCQPNphMWZl"  # Replace with your actual channel username/ID
-ADMIN_USER_ID = 5409176951  # Replace with your numeric ID once you get it
-SUBSCRIPTION_PRICE_STARS = 0  # Cost in Telegram Stars
-SUBSCRIPTION_DAYS = 30
+load_dotenv()
+
+TOKEN = os.getenv("TOKEN")
+ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", "5409176951"))
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 
-subscriptions = {}
+# Use actual channel usernames (e.g., @mychannel) or numeric IDs (-100...) instead of invite links
+managed_channels = {
+    "@Testing": {"price": 0, "days": 30}
+}
+
+subscriptions = {}  # Format: {user_id: {channel_id: expiry_datetime}}
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     
-    # Shows your numeric User ID directly in Telegram
-    await update.message.reply_text(f"Your Telegram User ID is: `{user.id}`", parse_mode="Markdown")
-
-    keyboard = [
-        [InlineKeyboardButton(f"Subscribe ({SUBSCRIPTION_PRICE_STARS} ⭐)", callback_data="buy_stars_sub")],
-        [InlineKeyboardButton("Check Status", callback_data="check_status")],
-    ]
+    keyboard = []
+    for ch_id, details in managed_channels.items():
+        keyboard.append([
+            InlineKeyboardButton(f"Subscribe to {ch_id} ({details['price']} ⭐)", callback_data=f"sub_{ch_id}")
+        ])
+    
+    keyboard.append([InlineKeyboardButton("Check Status", callback_data="check_status")])
     if user.id == ADMIN_USER_ID:
         keyboard.append([InlineKeyboardButton("⚙️ Admin Panel", callback_data="admin_panel")])
         
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
         f"Hello {user.first_name}! Welcome to the channel subscription bot.\n"
-        f"Gain instant access to {CHANNEL_ID} for 30 days using Telegram Stars.",
+        "Choose a channel below and purchase access securely using Telegram Stars.",
         reply_markup=reply_markup,
     )
 
@@ -51,13 +55,22 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
+    data = query.data
 
-    if query.data == "buy_stars_sub":
+    if data.startswith("sub_"):
+        ch_id = data.replace("sub_", "")
+        if ch_id not in managed_channels:
+            await query.edit_message_text(text="Invalid channel selection.")
+            return
+
+        price = managed_channels[ch_id]["price"]
+        days = managed_channels[ch_id]["days"]
+        
         title = "Private Channel Subscription"
-        description = f"30-day access to {CHANNEL_ID}"
-        payload = "channel_subscription_payload"
+        description = f"{days}-day access to {ch_id}"
+        payload = f"sub_pay_{ch_id}"
         currency = "XTR"
-        prices = [LabeledPrice("Subscription", SUBSCRIPTION_PRICE_STARS)]
+        prices = [LabeledPrice("Subscription", price)]
 
         await context.bot.send_invoice(
             chat_id=user_id,
@@ -69,69 +82,82 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             prices=prices,
         )
 
-    elif query.data == "check_status":
-        expiry = subscriptions.get(user_id)
-        if expiry and expiry > datetime.now():
-            await query.edit_message_text(
-                text=f"Your subscription is active until: {expiry.strftime('%Y-%m-%d %H:%M')}"
-            )
+    elif data == "check_status":
+        user_subs = subscriptions.get(user_id, {})
+        active_subs = {ch: exp for ch, exp in user_subs.items() if exp > datetime.now()}
+        
+        if not active_subs:
+            text = "You do not have any active subscriptions."
         else:
-            await query.edit_message_text(
-                text="You do not have an active subscription. Click /start to subscribe."
-            )
+            text = "📱 **Your Active Subscriptions:**\n"
+            for ch_id, expiry in active_subs.items():
+                text += f"- `{ch_id}`: Active until {expiry.strftime('%Y-%m-%d %H:%M')}\n"
+        await query.edit_message_text(text=text, parse_mode="Markdown")
 
-    elif query.data == "admin_panel" and user_id == ADMIN_USER_ID:
-        active_count = sum(1 for exp in subscriptions.values() if exp > datetime.now())
+    elif data == "admin_panel" and user_id == ADMIN_USER_ID:
+        active_total = sum(
+            1 for u_subs in subscriptions.values() 
+            for exp in u_subs.values() 
+            if exp > datetime.now()
+        )
         keyboard = [
-            [InlineKeyboardButton("📊 Stats", callback_data="admin_stats")],
-            [InlineKeyboardButton("👥 View Subscribers", callback_data="admin_list")],
+            [InlineKeyboardButton("📊 Stats & List", callback_data="admin_stats")],
+            [InlineKeyboardButton("➕ Add/Update Channel", callback_data="admin_add_channel")],
             [InlineKeyboardButton("🔙 Back to Main", callback_data="main_menu")],
         ]
         await query.edit_message_text(
-            text=f"⚙️ **Admin Control Panel**\n\nActive Subscribers: {active_count}",
+            text=f"⚙️ **Admin Control Panel**\n\nTotal Active Subscriptions across all channels: {active_total}",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
 
-    elif query.data == "admin_stats" and user_id == ADMIN_USER_ID:
-        active_count = sum(1 for exp in subscriptions.values() if exp > datetime.now())
+    elif data == "admin_stats" and user_id == ADMIN_USER_ID:
         keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="admin_panel")]]
-        await query.edit_message_text(
-            text=f"📊 **Bot Statistics**\n\nTotal tracked records: {len(subscriptions)}\nActive Subscriptions: {active_count}",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown"
-        )
-
-    elif query.data == "admin_list" and user_id == ADMIN_USER_ID:
-        keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="admin_panel")]]
+        text = "📊 **Subscriber Tracking Details:**\n\n"
+        
         if not subscriptions:
-            text = "No subscribers found."
+            text += "No subscription records found yet."
         else:
-            text = "👥 **Subscribers List:**\n"
-            for uid, exp in subscriptions.items():
-                status = "Active" if exp > datetime.now() else "Expired"
-                text += f"- ID: `{uid}` | Expires: {exp.strftime('%Y-%m-%d')} ({status})\n"
+            for uid, u_subs in subscriptions.items():
+                for ch_id, exp in u_subs.items():
+                    status = "Active" if exp > datetime.now() else "Expired"
+                    text += f"User `{uid}` -> `{ch_id}` ({status}, Exp: {exp.strftime('%Y-%m-%d')})\n"
+                    
+        await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+    elif data == "admin_add_channel" and user_id == ADMIN_USER_ID:
         await query.edit_message_text(
-            text=text,
-            reply_markup=InlineKeyboardMarkup(keyboard),
+            text="To add or update a channel, use command in chat:\n`/addchannel @channel_username price_in_stars days`\n\nExample: `/addchannel @mychannel 250 30`",
             parse_mode="Markdown"
         )
 
-    elif query.data == "main_menu":
-        keyboard = [
-            [InlineKeyboardButton(f"Subscribe ({SUBSCRIPTION_PRICE_STARS} ⭐)", callback_data="buy_stars_sub")],
-            [InlineKeyboardButton("Check Status", callback_data="check_status")],
-        ]
+    elif data == "main_menu":
+        keyboard = []
+        for ch_id, details in managed_channels.items():
+            keyboard.append([InlineKeyboardButton(f"Subscribe to {ch_id} ({details['price']} ⭐)", callback_data=f"sub_{ch_id}")])
+        keyboard.append([InlineKeyboardButton("Check Status", callback_data="check_status")])
         if user_id == ADMIN_USER_ID:
             keyboard.append([InlineKeyboardButton("⚙️ Admin Panel", callback_data="admin_panel")])
-        await query.edit_message_text(
-            text="Main Menu:", reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+        await query.edit_message_text(text="Main Menu:", reply_markup=InlineKeyboardMarkup(keyboard))
+
+
+async def add_channel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_USER_ID:
+        return
+    
+    args = context.args
+    if len(args) != 3:
+        await update.message.reply_text("Usage: /addchannel @channel_username price_in_stars days")
+        return
+
+    ch_id, price, days = args[0], int(args[1]), int(args[2])
+    managed_channels[ch_id] = {"price": price, "days": days}
+    await update.message.reply_text(f"Successfully added/updated {ch_id} with price {price} ⭐ for {days} days!")
 
 
 async def pre_checkout_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.pre_checkout_query
-    if query.invoice_payload != "channel_subscription_payload":
+    if not query.invoice_payload.startswith("sub_pay_"):
         await query.answer(ok=False, error_message="Something went wrong.")
     else:
         await query.answer(ok=True)
@@ -140,46 +166,57 @@ async def pre_checkout_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 async def successful_payment_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_id = user.id
-    expiry = datetime.now() + timedelta(days=SUBSCRIPTION_DAYS)
-    subscriptions[user_id] = expiry
+    payload = update.message.successful_payment.invoice_payload
+    ch_id = payload.replace("sub_pay_", "")
+    
+    days = managed_channels.get(ch_id, {}).get("days", 30)
+    expiry = datetime.now() + timedelta(days=days)
+    
+    if user_id not in subscriptions:
+        subscriptions[user_id] = {}
+    subscriptions[user_id][ch_id] = expiry
 
     try:
+        # Generates a secure single-use invite link valid only until subscription expiration
         invite_link = await context.bot.create_chat_invite_link(
-            chat_id=CHANNEL_ID,
+            chat_id=ch_id,
             member_limit=1,
             expire_date=int(expiry.timestamp()),
         )
         await update.message.reply_text(
-            f"Payment successful! Thank you for subscribing. 🎉\n"
-            f"Your access is valid until {expiry.strftime('%Y-%m-%d %H:%M')}.\n\n"
-            f"Use this single-use link to join: {invite_link.invite_link}"
+            f"Payment successful! 🎉 Access granted to {ch_id} until {expiry.strftime('%Y-%m-%d %H:%M')}.\n\n"
+            f"Your exclusive single-use invite link: {invite_link.invite_link}"
         )
     except Exception as e:
-        await update.message.reply_text("Payment received, but failed to generate invite link. Contact admin.")
-        logging.error(f"Invite error: {e}")
+        await update.message.reply_text("Payment received, but failed to generate invite link. Ensure bot is an administrator with add users permission in the channel.")
+        logging.error(f"Invite error for {ch_id}: {e}")
 
 
 async def check_subscriptions_job(context: ContextTypes.DEFAULT_TYPE):
     now = datetime.now()
-    expired_users = [uid for uid, expiry in subscriptions.items() if expiry <= now]
-
-    for user_id in expired_users:
-        try:
-            await context.bot.ban_chat_member(chat_id=CHANNEL_ID, user_id=user_id)
-            await context.bot.unban_chat_member(chat_id=CHANNEL_ID, user_id=user_id, only_if_banned=True)
-            await context.bot.send_message(
-                chat_id=user_id,
-                text="Your 30-day channel subscription has expired and you have been removed.",
-            )
-            del subscriptions[user_id]
-        except Exception as e:
-            logging.error(f"Failed to kick user {user_id}: {e}")
+    for user_id, user_subs in list(subscriptions.items()):
+        for ch_id, expiry in list(user_subs.items()):
+            if expiry <= now:
+                try:
+                    await context.bot.ban_chat_member(chat_id=ch_id, user_id=user_id)
+                    await context.bot.unban_chat_member(chat_id=ch_id, user_id=user_id, only_if_banned=True)
+                    await context.bot.send_message(
+                        chat_id=user_id,
+                        text=f"Your subscription for {ch_id} has expired. You have been removed.",
+                    )
+                    del subscriptions[user_id][ch_id]
+                except Exception as e:
+                    logging.error(f"Failed to remove user {user_id} from {ch_id}: {e}")
 
 
 def main():
+    if not TOKEN:
+        raise ValueError("No TOKEN found in environment variables!")
+
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("addchannel", add_channel_command))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(PreCheckoutQueryHandler(pre_checkout_handler))
     app.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_handler))
@@ -187,10 +224,10 @@ def main():
     job_queue = app.job_queue
     job_queue.run_repeating(check_subscriptions_job, interval=3600, first=10)
 
-    print("Bot with Admin Panel running...")
+    print("Multi-channel secure subscription bot running...")
     app.run_polling()
 
 
 if __name__ == "__main__":
     main()
-    
+        
