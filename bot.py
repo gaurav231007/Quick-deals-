@@ -21,7 +21,7 @@ logging.basicConfig(
 )
 
 managed_channels = {
-    "-1004487998151": {"price": 0, "days": 30}
+    "-1004487998151": {"price": 1, "days": 30}
 }
 
 subscriptions = {}
