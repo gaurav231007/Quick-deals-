@@ -13,7 +13,6 @@ from telegram.ext import (
     filters,
 )
 
-load_dotenv()
 
 TOKEN = os.getenv("TOKEN")
 ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", "5409176951"))
