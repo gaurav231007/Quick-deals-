@@ -43,17 +43,25 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
 
-    if query.data == "buy_stars_sub":
-        title = "Private Channel Subscription"
-        description = f"30-day access to {CHANNEL_ID}"
-        payload = "channel_subscription_payload"
-        currency = "XTR"
-        prices = [LabeledPrice("Subscription", SUBSCRIPTION_PRICE_STARS)]
+    # This line temporarily shows your ID in chat so you can copy it
+    await update.message.reply_text(f"Your Telegram User ID is: `{user.id}`", parse_mode="Markdown")
+
+    keyboard = [
+        [InlineKeyboardButton(f"Subscribe ({SUBSCRIPTION_PRICE_STARS} ⭐)", callback_data="buy_stars_sub")],
+        [InlineKeyboardButton("Check Status", callback_data="check_status")],
+    ]
+    if user.id == ADMIN_USER_ID:
+        keyboard.append([InlineKeyboardButton("⚙️ Admin Panel", callback_data="admin_panel")])
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(
+        f"Hello {user.first_name}! Welcome to the channel subscription bot.\n"
+        f"Gain instant access to {CHANNEL_ID} for 30 days using Telegram Stars.",
+        reply_markup=reply_markup,
+    )
 
         await context.bot.send_invoice(
             chat_id=user_id,
