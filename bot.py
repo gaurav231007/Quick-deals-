@@ -155,7 +155,7 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, edi
     if user_id == ADMIN_USER_ID:
         text = "👑 **Admin Panel / Status:**\nAapke paas Admin access hai."
         keyboard = [
-            [InlineKeyboardButton("🎬 Get Today's Video (/video)", callback_data="get_videos_info")],
+            [InlineKeyboardButton("🎬 Get Today's Video", callback_data="get_videos_info")],
             [InlineKeyboardButton("⚙️ Admin Control Panel", callback_data="admin_panel")]
         ]
     else:
@@ -181,13 +181,16 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, edi
                     InlineKeyboardButton(f"🚀 {details['name']} ({details['price']}₹ / {details['days']} Days)", callback_data=f"buy_{ch_id}")
                 ])
 
-        keyboard.append([InlineKeyboardButton("🎬 Get Today's Video (/video)", callback_data="get_videos_info")])
+        keyboard.append([InlineKeyboardButton("🎬 Get Today's Video", callback_data="get_videos_info")])
         keyboard.append([InlineKeyboardButton("💬 Contact Support / Help", callback_data="help_support")])
 
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     if edit and update.callback_query:
-        await update.callback_query.edit_message_text(text=text, reply_markup=reply_markup, parse_mode="Markdown")
+        try:
+            await update.callback_query.edit_message_text(text=text, reply_markup=reply_markup, parse_mode="Markdown")
+        except Exception:
+            await update.callback_query.message.reply_text(text=text, reply_markup=reply_markup, parse_mode="Markdown")
     else:
         await update.message.reply_text(text=text, reply_markup=reply_markup, parse_mode="Markdown", protect_content=True)
 
@@ -289,11 +292,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif data == "help_support":
-        admin_user = f"@{context.bot.username}" # Fallback or specific text
         help_text = (
             "💬 **Customer Support & Help:**\n\n"
             "Agar aapko payment ya subscription mein koi bhi samasya aa rahi hai, toh aap seedha admin se sampark kar sakte hain:\n\n"
-            f"👤 **Admin Contact:** [Click Here to Message Admin](tg://user?id={ADMIN_USER_ID})"
+            f"👤 **Admin ID:** `{ADMIN_USER_ID}`\n"
+            "Kripya apni payment ka screenshot ya details admin ko message karein."
         )
         keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="main_menu")]]
         await query.edit_message_text(text=help_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
@@ -302,26 +305,25 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if user_id != ADMIN_USER_ID:
             active_subs = db_get_all_active_subscriptions(user_id)
             if not active_subs:
-                await query.answer("❌ Aapka koi active subscription nahi hai!", show_alert=True)
+                await query.message.reply_text("❌ **Aapka koi active subscription nahi hai!** Kripya pehle plan buy karein.", parse_mode="Markdown")
                 return
 
         videos = load_videos_from_file()
         if not videos:
-            await query.answer("📭 Filhal koi video available nahi hai.", show_alert=True)
+            await query.message.reply_text("📭 Filhal koi video available nahi hai.", parse_mode="Markdown")
             return
 
         vid = videos[-1]
-        await query.answer("🎬 Sending today's video...", show_alert=False)
+        await query.message.reply_text("🎬 **Aapke liye Aaj ki Video:**", parse_mode="Markdown", protect_content=True)
         
         try:
-            await context.bot.send_message(chat_id=user_id, text="🎬 **Aapke liye Aaj ki Video:**", parse_mode="Markdown", protect_content=True)
             if vid["type"] == "video":
                 await context.bot.send_video(chat_id=user_id, video=vid["file_id"], caption=vid.get("caption", ""), protect_content=True)
             elif vid["type"] == "document":
                 await context.bot.send_document(chat_id=user_id, document=vid["file_id"], caption=vid.get("caption", ""), protect_content=True)
         except Exception as e:
             logging.error(f"Error in button video send: {e}")
-            await context.bot.send_message(chat_id=user_id, text="❌ Video send karne mein error aaya. Kripya /video command try karein.")
+            await query.message.reply_text("❌ Video send karne mein error aaya.")
 
     elif data.startswith("buy_"):
         ch_id = data.replace("buy_", "")
@@ -349,7 +351,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("🔙 Back", callback_data="main_menu")]
         ]
         
-        await query.message.delete()
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+
         await context.bot.send_photo(
             chat_id=user_id,
             photo=qr_image_url,
@@ -363,10 +369,13 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ch_id = data.replace("paid_", "")
         details = managed_channels[ch_id]
         
-        await query.edit_message_caption(
-            caption="⏳ **Payment verification pending!**\nYour request has been sent to the admin.",
-            parse_mode="Markdown"
-        )
+        try:
+            await query.edit_message_caption(
+                caption="⏳ **Payment verification pending!**\nYour request has been sent to the admin.",
+                parse_mode="Markdown"
+            )
+        except Exception:
+            pass
 
         admin_keyboard = [
             [
@@ -474,6 +483,4 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif data == "admin_free_help" and user_id == ADMIN_USER_ID:
-        keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="admin_panel")]]
-        await query.edit_message_text(
-            text="To give free entry without payment, send command in chat:\n`/giveaccess user_id channel_i
+        keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="admin_pan
