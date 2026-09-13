@@ -17,7 +17,7 @@ TOKEN = os.getenv("TOKEN")
 ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID"))
 UPI_ID = os.getenv("UPI_ID")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY") or os.getenv("SUPABASE_SECRET_KEY")
 STORAGE_CHANNEL_ID = os.getenv("STORAGE_CHANNEL_ID")
 
 if SUPABASE_URL and SUPABASE_KEY:
@@ -155,7 +155,7 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, edi
     if user_id == ADMIN_USER_ID:
         text = "👑 **Admin Panel / Status:**\nAapke paas Admin access hai. Storage channel mein video post karein, bot automatically save kar lega."
         keyboard = [
-            [InlineKeyboardButton("🎬 Get Daily Videos (/video)", callback_data="get_videos_info")],
+            [InlineKeyboardButton("🎬 Get Today's Video (/video)", callback_data="get_videos_info")],
             [InlineKeyboardButton("⚙️ Admin Control Panel", callback_data="admin_panel")]
         ]
     else:
@@ -174,14 +174,14 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, edi
             text = (
                 f"👋 Hello {name}!\n\n"
                 "❌ **Aapka koi active subscription nahi hai.**\n"
-                "Daily videos aur channel access ke liye niche diye gaye plan par click karein:"
+                "Daily videos aur access ke liye niche diye gaye plan par click karein:"
             )
             for ch_id, details in managed_channels.items():
                 keyboard.append([
                     InlineKeyboardButton(f"🚀 {details['name']} ({details['price']}₹ / {details['days']} Days)", callback_data=f"buy_{ch_id}")
                 ])
 
-        keyboard.append([InlineKeyboardButton("🎬 Get Daily Videos (/video)", callback_data="get_videos_info")])
+        keyboard.append([InlineKeyboardButton("🎬 Get Today's Video (/video)", callback_data="get_videos_info")])
 
     reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -209,16 +209,16 @@ async def video_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("📭 Filhal koi video available nahi hai.", protect_content=True)
         return
 
-    await update.message.reply_text("🎬 **Aapke liye Aaj ki Videos:**", parse_mode="Markdown", protect_content=True)
+    vid = videos[-1]
+    await update.message.reply_text("🎬 **Aapke liye Aaj ki Video:**", parse_mode="Markdown", protect_content=True)
     
-    for vid in videos:
-        try:
-            if vid["type"] == "video":
-                await context.bot.send_video(chat_id=user_id, video=vid["file_id"], caption=vid.get("caption", ""), protect_content=True)
-            elif vid["type"] == "document":
-                await context.bot.send_document(chat_id=user_id, document=vid["file_id"], caption=vid.get("caption", ""), protect_content=True)
-        except Exception as e:
-            logging.error(f"Error sending video: {e}")
+    try:
+        if vid["type"] == "video":
+            await context.bot.send_video(chat_id=user_id, video=vid["file_id"], caption=vid.get("caption", ""), protect_content=True)
+        elif vid["type"] == "document":
+            await context.bot.send_document(chat_id=user_id, document=vid["file_id"], caption=vid.get("caption", ""), protect_content=True)
+    except Exception as e:
+        logging.error(f"Error sending video: {e}")
 
 
 async def handle_storage_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -259,7 +259,27 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif data == "get_videos_info":
-        await query.answer("💡 Aap kabhi bhi chat mein /video likh kar apni daily videos access kar sakte hain!", show_alert=True)
+        active_subs = db_get_all_active_subscriptions(user_id)
+        if user_id != ADMIN_USER_ID and not active_subs:
+            await query.answer("❌ Aapka koi active subscription nahi hai!", show_alert=True)
+            return
+
+        videos = load_videos_from_file()
+        if not videos:
+            await query.answer("📭 Filhal koi video available nahi hai.", show_alert=True)
+            return
+
+        vid = videos[-1]
+        await query.answer("🎬 Sending today's video...", show_alert=False)
+        await context.bot.send_message(chat_id=user_id, text="🎬 **Aapke liye Aaj ki Video:**", parse_mode="Markdown", protect_content=True)
+        
+        try:
+            if vid["type"] == "video":
+                await context.bot.send_video(chat_id=user_id, video=vid["file_id"], caption=vid.get("caption", ""), protect_content=True)
+            elif vid["type"] == "document":
+                await context.bot.send_document(chat_id=user_id, document=vid["file_id"], caption=vid.get("caption", ""), protect_content=True)
+        except Exception as e:
+            logging.error(f"Error sending video: {e}")
 
     elif data.startswith("buy_"):
         ch_id = data.replace("buy_", "")
@@ -341,22 +361,24 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db_save_subscription(target_user_id, ch_id, expiry, now, price)
 
         try:
-            invite_link = await context.bot.create_chat_invite_link(
-                chat_id=ch_id,
-                member_limit=1,
-                expire_date=int(expiry.timestamp()),
-            )
             await context.bot.send_message(
                 chat_id=target_user_id,
-                text=f"🎉 **Payment Approved!** Subscription updated until {expiry.strftime('%Y-%m-%d %H:%M')}.\n"
-                     f"⚠️ *Note:* Yeh invite link sirf **ek baar** use ho sakta hai.\n\n"
-                     f"🔗 **Your single-use invite link:** {invite_link.invite_link}",
+                text=f"🎉 **Payment Approved!** Aapka subscription active ho gaya hai (Valid until: {expiry.strftime('%Y-%m-%d %H:%M')}).\n\n🎬 **Aapki Aaj ki Video:**",
                 parse_mode="Markdown",
                 protect_content=True
             )
-            await query.edit_message_text(text=f"✅ Approved for user `{target_user_id}`!", parse_mode="Markdown")
+            
+            videos = load_videos_from_file()
+            if videos:
+                vid = videos[-1]
+                if vid["type"] == "video":
+                    await context.bot.send_video(chat_id=target_user_id, video=vid["file_id"], caption=vid.get("caption", ""), protect_content=True)
+                elif vid["type"] == "document":
+                    await context.bot.send_document(chat_id=target_user_id, document=vid["file_id"], caption=vid.get("caption", ""), protect_content=True)
+
+            await query.edit_message_text(text=f"✅ Approved and today's video sent to user `{target_user_id}`!", parse_mode="Markdown")
         except Exception as e:
-            await query.edit_message_text(text=f"❌ Error generating invite link: {e}")
+            await query.edit_message_text(text=f"❌ Error: {e}")
 
     elif data.startswith("rej_") and user_id == ADMIN_USER_ID:
         _, target_user_id = data.split("_")
@@ -457,40 +479,16 @@ async def give_access_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     db_save_subscription(target_user_id, ch_id, expiry, now, 0)
 
     try:
-        invite_link = await context.bot.create_chat_invite_link(
-            chat_id=ch_id,
-            member_limit=1,
-            expire_date=int(expiry.timestamp()),
-        )
         await context.bot.send_message(
             chat_id=target_user_id,
-            text=f"🎁 **Access Granted by Admin!** Valid until {expiry.strftime('%Y-%m-%d %H:%M')}.\n"
-                 f"⚠️ *Note:* Yeh invite link sirf **ek baar** use ho sakta hai.\n\n"
-                 f"🔗 **Your invite link:** {invite_link.invite_link}",
+            text=f"🎁 **Access Granted by Admin!** Valid until {expiry.strftime('%Y-%m-%d %H:%M')}.\n\n🎬 **Aapki Aaj ki Video:**",
             protect_content=True
         )
-        await update.message.reply_text(f"✅ Successfully granted access to user `{target_user_id}` for {days} days!")
-    except Exception as e:
-        await update.message.reply_text(f"❌ Error generating invite link: {e}")
-
-
-def main():
-    if not TOKEN:
-        raise ValueError("No TOKEN found in environment variables!")
-
-    app = ApplicationBuilder().token(TOKEN).build()
-
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("video", video_command))
-    app.add_handler(CommandHandler("addchannel", add_channel_command))
-    app.add_handler(CommandHandler("giveaccess", give_access_command))
-    app.add_handler(MessageHandler(filters.UpdateType.CHANNEL_POST, handle_storage_channel_post))
-    app.add_handler(CallbackQueryHandler(button_handler))
-
-    print("Bot with Name & ID Subscriber List is running...")
-    app.run_polling()
-
-
-if __name__ == "__main__":
-    main()
         
+        videos = load_videos_from_file()
+        if videos:
+            vid = videos[-1]
+            if vid["type"] == "video":
+                await context.bot.send_video(chat_id=target_user_id, video=vid["file_id"], caption=vid.get("caption", ""), protect_content=True)
+            elif vid["type"] == "document":
+                await context.bot.send_document(chat_id=target_user_id, document=vid["file_id"], caption=vid.
