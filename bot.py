@@ -1,10 +1,12 @@
 import os
+import json
 import logging
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
+    MessageHandler,
     CallbackQueryHandler,
     ContextTypes,
     filters,
@@ -16,6 +18,7 @@ ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID"))
 UPI_ID = os.getenv("UPI_ID")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+STORAGE_CHANNEL_ID = os.getenv("STORAGE_CHANNEL_ID")
 
 if SUPABASE_URL and SUPABASE_KEY:
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -25,6 +28,26 @@ else:
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
+
+VIDEOS_FILE = "videos.txt"
+
+
+def load_videos_from_file():
+    if not os.path.exists(VIDEOS_FILE):
+        return []
+    try:
+        with open(VIDEOS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return []
+
+
+def save_videos_to_file(videos):
+    try:
+        with open(VIDEOS_FILE, "w", encoding="utf-8") as f:
+            json.dump(videos, f, ensure_ascii=False, indent=4)
+    except Exception as e:
+        logging.error(f"Error saving videos file: {e}")
 
 
 def db_get_channels():
@@ -130,7 +153,7 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, edi
     managed_channels = db_get_channels()
     
     if user_id == ADMIN_USER_ID:
-        text = "👑 **Admin Panel / Status:**\nAapke paas Admin access hai. Naye plans add karne ke liye `/addchannel` command use karein."
+        text = "👑 **Admin Panel / Status:**\nAapke paas Admin access hai. Storage channel mein video post karein, bot automatically save kar lega."
         keyboard = [
             [InlineKeyboardButton("🎬 Get Daily Videos (/video)", callback_data="get_videos_info")],
             [InlineKeyboardButton("⚙️ Admin Control Panel", callback_data="admin_panel")]
@@ -181,12 +204,38 @@ async def video_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         
-    await update.message.reply_text(
-        "🎬 **Aapke liye Aaj ki Videos:**\n\n"
-        "*(Note: Storage channel se media access karne ke liye channel ID configure honi chahiye.)*",
-        parse_mode="Markdown",
-        protect_content=True
-    )
+    videos = load_videos_from_file()
+    if not videos:
+        await update.message.reply_text("📭 Filhal koi video available nahi hai.", protect_content=True)
+        return
+
+    await update.message.reply_text("🎬 **Aapke liye Aaj ki Videos:**", parse_mode="Markdown", protect_content=True)
+    
+    for vid in videos:
+        try:
+            if vid["type"] == "video":
+                await context.bot.send_video(chat_id=user_id, video=vid["file_id"], caption=vid.get("caption", ""), protect_content=True)
+            elif vid["type"] == "document":
+                await context.bot.send_document(chat_id=user_id, document=vid["file_id"], caption=vid.get("caption", ""), protect_content=True)
+        except Exception as e:
+            logging.error(f"Error sending video: {e}")
+
+
+async def handle_storage_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    message = update.channel_post
+    if not message:
+        return
+    
+    if STORAGE_CHANNEL_ID and str(message.chat.id) == str(STORAGE_CHANNEL_ID):
+        videos = load_videos_from_file()
+        if message.video:
+            videos.append({"type": "video", "file_id": message.video.file_id, "caption": message.caption or ""})
+            save_videos_to_file(videos)
+            logging.info("New video captured from storage channel.")
+        elif message.document:
+            videos.append({"type": "document", "file_id": message.document.file_id, "caption": message.caption or ""})
+            save_videos_to_file(videos)
+            logging.info("New document captured from storage channel.")
 
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -332,15 +381,23 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "admin_sub_list" and user_id == ADMIN_USER_ID:
         keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="admin_panel")]]
         subs = db_get_all_subscriptions()
-        text = "📋 **Subscribers List Database:**\n\n"
+        text = "📋 **Subscribers List (Name & ID):**\n\n"
         
         if not subs:
             text += "No active subscribers found."
         else:
             now = datetime.now()
             for row in subs:
+                uid = row["user_id"]
                 status = "🟢 Active" if datetime.fromisoformat(row["expiry"]) > now else "🔴 Expired"
-                text += f"👤 User: `{row['user_id']}`\n📦 Ch: `{row['channel_id']}`\nStatus: {status}\nExp: `{row['expiry'][:16]}`\n\n"
+                
+                try:
+                    chat_info = await context.bot.get_chat(uid)
+                    name = chat_info.first_name or "Unknown"
+                except Exception:
+                    name = "Unknown"
+                
+                text += f"👤 **Name:** {name}\n🆔 **ID:** `{uid}`\n📦 **Ch:** `{row['channel_id']}`\n📌 **Status:** {status}\n⏳ **Exp:** `{row['expiry'][:16]}`\n\n"
 
         await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
@@ -408,7 +465,7 @@ async def give_access_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         await context.bot.send_message(
             chat_id=target_user_id,
             text=f"🎁 **Access Granted by Admin!** Valid until {expiry.strftime('%Y-%m-%d %H:%M')}.\n"
-                 f"⚠️ *Note:* Yeh invite link sirf ek baar use ho sakta hai.\n\n"
+                 f"⚠️ *Note:* Yeh invite link sirf **ek baar** use ho sakta hai.\n\n"
                  f"🔗 **Your invite link:** {invite_link.invite_link}",
             protect_content=True
         )
@@ -427,9 +484,10 @@ def main():
     app.add_handler(CommandHandler("video", video_command))
     app.add_handler(CommandHandler("addchannel", add_channel_command))
     app.add_handler(CommandHandler("giveaccess", give_access_command))
+    app.add_handler(MessageHandler(filters.UpdateType.CHANNEL_POST, handle_storage_channel_post))
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    print("Dynamic Channel Bot is running...")
+    print("Bot with Name & ID Subscriber List is running...")
     app.run_polling()
 
 
