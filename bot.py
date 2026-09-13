@@ -259,10 +259,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif data == "get_videos_info":
-        active_subs = db_get_all_active_subscriptions(user_id)
-        if user_id != ADMIN_USER_ID and not active_subs:
-            await query.answer("❌ Aapka koi active subscription nahi hai!", show_alert=True)
-            return
+        if user_id != ADMIN_USER_ID:
+            active_subs = db_get_all_active_subscriptions(user_id)
+            if not active_subs:
+                await query.answer("❌ Aapka koi active subscription nahi hai!", show_alert=True)
+                return
 
         videos = load_videos_from_file()
         if not videos:
@@ -271,15 +272,16 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         vid = videos[-1]
         await query.answer("🎬 Sending today's video...", show_alert=False)
-        await context.bot.send_message(chat_id=user_id, text="🎬 **Aapke liye Aaj ki Video:**", parse_mode="Markdown", protect_content=True)
         
         try:
+            await context.bot.send_message(chat_id=user_id, text="🎬 **Aapke liye Aaj ki Video:**", parse_mode="Markdown", protect_content=True)
             if vid["type"] == "video":
                 await context.bot.send_video(chat_id=user_id, video=vid["file_id"], caption=vid.get("caption", ""), protect_content=True)
             elif vid["type"] == "document":
                 await context.bot.send_document(chat_id=user_id, document=vid["file_id"], caption=vid.get("caption", ""), protect_content=True)
         except Exception as e:
-            logging.error(f"Error sending video: {e}")
+            logging.error(f"Error sending video via button: {e}")
+            await context.bot.send_message(chat_id=user_id, text="❌ Video send karne mein error aaya. Kripya /video command try karein.")
 
     elif data.startswith("buy_"):
         ch_id = data.replace("buy_", "")
@@ -489,6 +491,4 @@ async def give_access_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         if videos:
             vid = videos[-1]
             if vid["type"] == "video":
-                await context.bot.send_video(chat_id=target_user_id, video=vid["file_id"], caption=vid.get("caption", ""), protect_content=True)
-            elif vid["type"] == "document":
-                await context.bot.send_document(chat_id=target_user_id, document=vid["file_id"], caption=vid.
+                await context.bot.send_video(chat_id=target_user_id, video=vid["file_id"], caption=vid.get("caption", "")
