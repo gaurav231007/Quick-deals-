@@ -12,9 +12,12 @@ from telegram.ext import (
 )
 
 # Environment variables se credentials load honge
+import os
+
 TOKEN = os.getenv("TOKEN")
-ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", "5409176951"))
-UPI_ID = os.getenv("UPI_ID", "9507846346@ptaxis")
+ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID"))
+UPI_ID = os.getenv("UPI_ID")
+
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
