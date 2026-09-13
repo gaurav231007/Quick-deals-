@@ -153,7 +153,7 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, edi
     managed_channels = db_get_channels()
     
     if user_id == ADMIN_USER_ID:
-        text = "👑 **Admin Panel / Status:**\nAapke paas Admin access hai. Storage channel mein video post karein, bot automatically save kar lega."
+        text = "👑 **Admin Panel / Status:**\nAapke paas Admin access hai."
         keyboard = [
             [InlineKeyboardButton("🎬 Get Today's Video (/video)", callback_data="get_videos_info")],
             [InlineKeyboardButton("⚙️ Admin Control Panel", callback_data="admin_panel")]
@@ -182,6 +182,7 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, edi
                 ])
 
         keyboard.append([InlineKeyboardButton("🎬 Get Today's Video (/video)", callback_data="get_videos_info")])
+        keyboard.append([InlineKeyboardButton("💬 Contact Support / Help", callback_data="help_support")])
 
     reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -221,6 +222,35 @@ async def video_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logging.error(f"Error sending video: {e}")
 
 
+async def send_specific_video_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_USER_ID:
+        return
+    
+    args = context.args
+    if len(args) < 2:
+        await update.message.reply_text("Usage: /sendvideo user_id video_index (jaise: /sendvideo 123456789 0)")
+        return
+
+    try:
+        target_user_id = int(args[0])
+        vid_index = int(args[1])
+        videos = load_videos_from_file()
+        
+        if not videos or vid_index >= len(videos):
+            await update.message.reply_text(f"❌ Invalid video index! Total videos stored: {len(videos)}")
+            return
+            
+        vid = videos[vid_index]
+        if vid["type"] == "video":
+            await context.bot.send_video(chat_id=target_user_id, video=vid["file_id"], caption=vid.get("caption", "Specific Video from Admin"), protect_content=True)
+        elif vid["type"] == "document":
+            await context.bot.send_document(chat_id=target_user_id, document=vid["file_id"], caption=vid.get("caption", "Specific Video from Admin"), protect_content=True)
+            
+        await update.message.reply_text(f"✅ Successfully sent video index `{vid_index}` to user `{target_user_id}`!")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error sending specific video: {e}")
+
+
 async def handle_storage_channel_post(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.channel_post
     if not message:
@@ -231,11 +261,11 @@ async def handle_storage_channel_post(update: Update, context: ContextTypes.DEFA
         if message.video:
             videos.append({"type": "video", "file_id": message.video.file_id, "caption": message.caption or ""})
             save_videos_to_file(videos)
-            logging.info("New video captured from storage channel.")
+            logging.info(f"New video captured. Total stored: {len(videos)}")
         elif message.document:
             videos.append({"type": "document", "file_id": message.document.file_id, "caption": message.caption or ""})
             save_videos_to_file(videos)
-            logging.info("New document captured from storage channel.")
+            logging.info(f"New document captured. Total stored: {len(videos)}")
 
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -257,6 +287,16 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
+
+    elif data == "help_support":
+        admin_user = f"@{context.bot.username}" # Fallback or specific text
+        help_text = (
+            "💬 **Customer Support & Help:**\n\n"
+            "Agar aapko payment ya subscription mein koi bhi samasya aa rahi hai, toh aap seedha admin se sampark kar sakte hain:\n\n"
+            f"👤 **Admin Contact:** [Click Here to Message Admin](tg://user?id={ADMIN_USER_ID})"
+        )
+        keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="main_menu")]]
+        await query.edit_message_text(text=help_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
     elif data == "get_videos_info":
         if user_id != ADMIN_USER_ID:
@@ -280,7 +320,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             elif vid["type"] == "document":
                 await context.bot.send_document(chat_id=user_id, document=vid["file_id"], caption=vid.get("caption", ""), protect_content=True)
         except Exception as e:
-            logging.error(f"Error sending video via button: {e}")
+            logging.error(f"Error in button video send: {e}")
             await context.bot.send_message(chat_id=user_id, text="❌ Video send karne mein error aaya. Kripya /video command try karein.")
 
     elif data.startswith("buy_"):
@@ -436,59 +476,4 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "admin_free_help" and user_id == ADMIN_USER_ID:
         keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="admin_panel")]]
         await query.edit_message_text(
-            text="To give free entry without payment, send command in chat:\n`/giveaccess user_id channel_id days`",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown"
-        )
-
-    elif data == "main_menu":
-        await query.message.delete()
-        await show_main_menu(update, context, edit=False)
-
-
-async def add_channel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_USER_ID:
-        return
-    
-    args = context.args
-    if len(args) != 4:
-        await update.message.reply_text("Usage: /addchannel -100xxxxxxxxxx Channel_Name Price Days")
-        return
-
-    ch_id, name, price, days = args[0], args[1], int(args[2]), int(args[3])
-    db_save_channel(ch_id, name, price, days)
-    await update.message.reply_text(f"✅ Channel Plan saved to Database!\nChannel: {name}\nPrice: ₹{price}\nValidity: {days} Days")
-
-
-async def give_access_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_USER_ID:
-        return
-    
-    args = context.args
-    if len(args) != 3:
-        await update.message.reply_text("Usage: /giveaccess user_id channel_id days")
-        return
-
-    target_user_id, ch_id, days = int(args[0]), args[1], int(args[2])
-    now = datetime.now()
-    
-    existing = db_get_subscription(target_user_id, ch_id)
-    if existing and existing["expiry"] > now:
-        expiry = existing["expiry"] + timedelta(days=days)
-    else:
-        expiry = now + timedelta(days=days)
-
-    db_save_subscription(target_user_id, ch_id, expiry, now, 0)
-
-    try:
-        await context.bot.send_message(
-            chat_id=target_user_id,
-            text=f"🎁 **Access Granted by Admin!** Valid until {expiry.strftime('%Y-%m-%d %H:%M')}.\n\n🎬 **Aapki Aaj ki Video:**",
-            protect_content=True
-        )
-        
-        videos = load_videos_from_file()
-        if videos:
-            vid = videos[-1]
-            if vid["type"] == "video":
-                await context.bot.send_video(chat_id=target_user_id, video=vid["file_id"], caption=vid.get("caption", "")
+            text="To give free entry without payment, send command in chat:\n`/giveaccess user_id channel_i
