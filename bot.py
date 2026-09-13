@@ -5,7 +5,6 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
-    MessageHandler,
     CallbackQueryHandler,
     ContextTypes,
     filters,
@@ -17,8 +16,6 @@ ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID"))
 UPI_ID = os.getenv("UPI_ID")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-REQUIRED_JOIN_CHANNEL = os.getenv("REQUIRED_JOIN_CHANNEL", "@YourUpdateChannel")
-STORAGE_CHANNEL_ID = os.getenv("STORAGE_CHANNEL_ID")
 
 if SUPABASE_URL and SUPABASE_KEY:
     supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -29,9 +26,37 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 
-managed_channels = {
-    "-1004487998151": {"name": "VIP Channel", "price": 29, "days": 30}
-}
+
+def db_get_channels():
+    if not supabase:
+        return {}
+    try:
+        res = supabase.table("channels").select("*").execute()
+        channels = {}
+        for row in res.data:
+            channels[str(row["channel_id"])] = {
+                "name": row["name"],
+                "price": row["price"],
+                "days": row["days"]
+            }
+        return channels
+    except Exception as e:
+        logging.error(f"DB Get Channels Error: {e}")
+        return {}
+
+
+def db_save_channel(channel_id, name, price, days):
+    if not supabase:
+        return
+    try:
+        supabase.table("channels").upsert({
+            "channel_id": str(channel_id),
+            "name": str(name),
+            "price": int(price),
+            "days": int(days)
+        }).execute()
+    except Exception as e:
+        logging.error(f"DB Save Channel Error: {e}")
 
 
 def db_get_subscription(user_id, channel_id):
@@ -85,42 +110,27 @@ def db_get_all_active_subscriptions(user_id):
         return {}
 
 
-async def check_membership(bot, user_id, channel):
+def db_get_all_subscriptions():
+    if not supabase:
+        return []
     try:
-        member = await bot.get_chat_member(chat_id=channel, user_id=user_id)
-        if member.status in ["member", "administrator", "creator"]:
-            return True
-    except Exception:
-        pass
-    return False
+        res = supabase.table("subscriptions").select("*").execute()
+        return res.data
+    except Exception as e:
+        logging.error(f"DB Get All Subs Error: {e}")
+        return []
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    
-    if REQUIRED_JOIN_CHANNEL != "@YourUpdateChannel" and user.id != ADMIN_USER_ID:
-        is_joined = await check_membership(context.bot, user.id, REQUIRED_JOIN_CHANNEL)
-        if not is_joined:
-            keyboard = [
-                [InlineKeyboardButton("📢 Join Channel To Use Bot", url=f"https://t.me/{REQUIRED_JOIN_CHANNEL.replace('@','')}")],
-                [InlineKeyboardButton("✅ Joined / Verify", callback_data="verify_join")]
-            ]
-            await update.message.reply_text(
-                "⚠️ **Please join our update channel first to use this bot!**",
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode="Markdown",
-                protect_content=True
-            )
-            return
-
     await show_main_menu(update, context)
 
 
 async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, edit=False):
     user_id = update.effective_user.id if update.effective_user else update.callback_query.from_user.id
+    managed_channels = db_get_channels()
     
     if user_id == ADMIN_USER_ID:
-        text = "👑 **Admin Panel / Status:**\nAapke paas Admin access hai. Videos bhejne ke liye apne Storage Channel mein upload karein."
+        text = "👑 **Admin Panel / Status:**\nAapke paas Admin access hai. Naye plans add karne ke liye `/addchannel` command use karein."
         keyboard = [
             [InlineKeyboardButton("🎬 Get Daily Videos (/video)", callback_data="get_videos_info")],
             [InlineKeyboardButton("⚙️ Admin Control Panel", callback_data="admin_panel")]
@@ -173,7 +183,7 @@ async def video_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     await update.message.reply_text(
         "🎬 **Aapke liye Aaj ki Videos:**\n\n"
-        "*(Note: Storage channel se media access karne ke liye channel id configure honi chahiye.)*",
+        "*(Note: Storage channel se media access karne ke liye channel ID configure honi chahiye.)*",
         parse_mode="Markdown",
         protect_content=True
     )
@@ -184,15 +194,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     user_id = query.from_user.id
     data = query.data
+    managed_channels = db_get_channels()
 
-    if data == "verify_join":
-        if REQUIRED_JOIN_CHANNEL != "@YourUpdateChannel" and await check_membership(context.bot, user_id, REQUIRED_JOIN_CHANNEL):
-            await query.message.delete()
-            await show_main_menu(update, context)
-        else:
-            await query.answer("❌ You haven't joined the channel yet!", show_alert=True)
-
-    elif data == "show_plans":
+    if data == "show_plans":
         keyboard = []
         for ch_id, details in managed_channels.items():
             keyboard.append([
@@ -263,7 +267,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat_id=ADMIN_USER_ID,
             text=f"🔔 **New Payment Verification Request!**\n\n"
                  f"👤 **User ID:** `{user_id}`\n"
-                 f"📦 **Channel:** `{ch_id}`\n"
+                 f"📦 **Channel ID:** `{ch_id}`\n"
                  f"💵 **Amount:** ₹{details['price']}",
             reply_markup=InlineKeyboardMarkup(admin_keyboard),
             parse_mode="Markdown",
@@ -274,7 +278,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         _, target_user_id, ch_id = data.split("_")
         target_user_id = int(target_user_id)
         
-        details = managed_channels[ch_id]
+        details = managed_channels.get(ch_id, {"days": 30, "price": 0})
         days = details["days"]
         price = details["price"]
         now = datetime.now()
@@ -303,7 +307,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             await query.edit_message_text(text=f"✅ Approved for user `{target_user_id}`!", parse_mode="Markdown")
         except Exception as e:
-            await query.edit_message_text(text=f"❌ Error: {e}")
+            await query.edit_message_text(text=f"❌ Error generating invite link: {e}")
 
     elif data.startswith("rej_") and user_id == ADMIN_USER_ID:
         _, target_user_id = data.split("_")
@@ -314,20 +318,36 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data == "admin_panel" and user_id == ADMIN_USER_ID:
         keyboard = [
+            [InlineKeyboardButton("📋 View Subscribers List", callback_data="admin_sub_list")],
             [InlineKeyboardButton("➕ Add/Update Channel Plan", callback_data="admin_channel_help")],
             [InlineKeyboardButton("🎁 Give Free Entry", callback_data="admin_free_help")],
             [InlineKeyboardButton("🔙 Back to Main", callback_data="main_menu")]
         ]
         await query.edit_message_text(
-            text="⚙️ **Admin Control Panel**\n\n🔗 Storage Channel Configured.",
+            text="⚙️ **Admin Control Panel**\n\nManage channels, view subscribers, and grant access seamlessly.",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
 
+    elif data == "admin_sub_list" and user_id == ADMIN_USER_ID:
+        keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="admin_panel")]]
+        subs = db_get_all_subscriptions()
+        text = "📋 **Subscribers List Database:**\n\n"
+        
+        if not subs:
+            text += "No active subscribers found."
+        else:
+            now = datetime.now()
+            for row in subs:
+                status = "🟢 Active" if datetime.fromisoformat(row["expiry"]) > now else "🔴 Expired"
+                text += f"👤 User: `{row['user_id']}`\n📦 Ch: `{row['channel_id']}`\nStatus: {status}\nExp: `{row['expiry'][:16]}`\n\n"
+
+        await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
     elif data == "admin_channel_help" and user_id == ADMIN_USER_ID:
         keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="admin_panel")]]
         await query.edit_message_text(
-            text="To add or update a channel plan price/days, use command:\n`/addchannel -100xxxxxxxxxx Channel_Name Price Days`",
+            text="To add or update a channel plan price/days, send command in chat:\n`/addchannel -100xxxxxxxxxx Channel_Name Price Days`",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
@@ -335,7 +355,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "admin_free_help" and user_id == ADMIN_USER_ID:
         keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="admin_panel")]]
         await query.edit_message_text(
-            text="To give free entry without payment, use command:\n`/giveaccess user_id channel_id days`",
+            text="To give free entry without payment, send command in chat:\n`/giveaccess user_id channel_id days`",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
@@ -355,8 +375,8 @@ async def add_channel_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
 
     ch_id, name, price, days = args[0], args[1], int(args[2]), int(args[3])
-    managed_channels[ch_id] = {"name": name, "price": price, "days": days}
-    await update.message.reply_text(f"✅ Plan updated successfully!\nChannel: {name}\nPrice: ₹{price}\nValidity: {days} Days")
+    db_save_channel(ch_id, name, price, days)
+    await update.message.reply_text(f"✅ Channel Plan saved to Database!\nChannel: {name}\nPrice: ₹{price}\nValidity: {days} Days")
 
 
 async def give_access_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -409,10 +429,10 @@ def main():
     app.add_handler(CommandHandler("giveaccess", give_access_command))
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    print("Zero-Cost Secure Bot is running...")
+    print("Dynamic Channel Bot is running...")
     app.run_polling()
 
 
 if __name__ == "__main__":
     main()
-                
+        
