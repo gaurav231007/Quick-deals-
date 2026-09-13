@@ -11,23 +11,25 @@ from telegram.ext import (
     filters,
 )
 
-TOKEN = os.getenv("TOKEN") or "8237192414:AAGC6N4dattjPSjBVT6bZLtP6R4LeARGLCw"
+# Environment variables se credentials load honge
+TOKEN = os.getenv("TOKEN")
 ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", "5409176951"))
-UPI_ID = "9507846346@ptaxis"
+UPI_ID = os.getenv("UPI_ID", "9507846346@ptaxis")
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 
+# Managed Channels Dict: {channel_id: {"name": "Name", "price": price, "days": days}}
 managed_channels = {
-    "-1004487998151": {"name": "Testing Channel", "price": 29, "days": 30}
+    "-1004487998151": {"name": "VIP Channel", "price": 29, "days": 30}
 }
 
 REQUIRED_JOIN_CHANNEL = "@YourUpdateChannel"
 
-subscriptions = {}  
-pending_payments = {} 
-daily_videos_list = [] # Admin dwara bheje gaye direct videos/files ki list
+subscriptions = {}  # {user_id: {channel_id: {"expiry": datetime, "start_date": datetime, "price_paid": int}}}
+pending_payments = {} # {user_id: channel_id}
+daily_videos_list = [] # Admin dwara upload kiye gaye videos ki list
 
 
 async def check_membership(bot, user_id, channel):
@@ -70,13 +72,13 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, edi
     keyboard.append([InlineKeyboardButton("📊 Check My Status", callback_data="check_status")])
     
     if update.effective_user.id == ADMIN_USER_ID:
-        keyboard.append([InlineKeyboardButton("⚙️ Admin Panel", callback_data="admin_panel")])
+        keyboard.append([InlineKeyboardButton("⚙️ Admin Control Panel", callback_data="admin_panel")])
 
     reply_markup = InlineKeyboardMarkup(keyboard)
     text = (
         f"👋 Hello {update.effective_user.first_name}!\n\n"
         "✨ **Welcome to Private Channel Subscription Bot.**\n"
-        "Select a plan below to get daily content and access."
+        "Select a plan below to get access and daily videos."
     )
 
     if edit and update.callback_query:
@@ -102,43 +104,27 @@ async def video_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("🎬 **Aapke liye Aaj ki Videos:**", parse_mode="Markdown", protect_content=True)
     
-    # Har stored video ko user ko direct forward-protected bhej diya jayega
     for vid_info in daily_videos_list:
         try:
             if vid_info["type"] == "video":
-                await context.bot.send_video(
-                    chat_id=user_id,
-                    video=vid_info["file_id"],
-                    caption=vid_info.get("caption", ""),
-                    protect_content=True
-                )
+                await context.bot.send_video(chat_id=user_id, video=vid_info["file_id"], caption=vid_info.get("caption", ""), protect_content=True)
             elif vid_info["type"] == "document":
-                await context.bot.send_document(
-                    chat_id=user_id,
-                    document=vid_info["file_id"],
-                    caption=vid_info.get("caption", ""),
-                    protect_content=True
-                )
+                await context.bot.send_document(chat_id=user_id, document=vid_info["file_id"], caption=vid_info.get("caption", ""), protect_content=True)
         except Exception as e:
             logging.error(f"Error sending video to {user_id}: {e}")
 
 
 async def handle_admin_upload(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Admin jab bhi bot ko direct video ya document bhejega, woh save ho jayegi"""
     if update.effective_user.id != ADMIN_USER_ID:
         return
 
     message = update.message
     if message.video:
-        file_id = message.video.file_id
-        caption = message.caption or ""
-        daily_videos_list.append({"type": "video", "file_id": file_id, "caption": caption})
-        await message.reply_text(f"✅ Video successfully added to queue! Total videos: {len(daily_videos_list)}")
+        daily_videos_list.append({"type": "video", "file_id": message.video.file_id, "caption": message.caption or ""})
+        await message.reply_text(f"✅ Video added! Total queue: {len(daily_videos_list)}")
     elif message.document:
-        file_id = message.document.file_id
-        caption = message.caption or ""
-        daily_videos_list.append({"type": "document", "file_id": file_id, "caption": caption})
-        await message.reply_text(f"✅ Document/Video file added to queue! Total items: {len(daily_videos_list)}")
+        daily_videos_list.append({"type": "document", "file_id": message.document.file_id, "caption": message.caption or ""})
+        await message.reply_text(f"✅ Document added! Total queue: {len(daily_videos_list)}")
 
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -160,11 +146,21 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(text="Invalid channel selection.")
             return
 
+        # Check if user already has active sub or pending payment (Bar-bar QR na dikhane ke liye)
+        now = datetime.now()
+        if user_id in subscriptions and ch_id in subscriptions[user_id] and subscriptions[user_id][ch_id]["expiry"] > now:
+            await query.answer("⚠️ Aapka yeh subscription pehle se active hai!", show_alert=True)
+            return
+
+        if user_id in pending_payments:
+            await query.answer("⏳ Aapka ek payment request pehle se pending hai. Admin approval ka wait karein.", show_alert=True)
+            return
+
         details = managed_channels[ch_id]
         pending_payments[user_id] = ch_id
 
         qr_caption = (
-            f"🛍️ **Plan:** {details['days']} Days Access + Daily Videos\n"
+            f"🛍️ **Plan:** {details['name']} ({details['days']} Days)\n"
             f"💰 **Amount:** ₹{details['price']}\n\n"
             "1️⃣ Scan the QR code using any UPI app to pay.\n"
             "2️⃣ After payment, click the **'I Have Paid'** button below."
@@ -209,7 +205,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(
             chat_id=ADMIN_USER_ID,
             text=f"🔔 **New Payment Verification Request!**\n\n"
-                 f"👤 **User:** {query.from_user.first_name} (`{user_id}`)\n"
+                 f"👤 **User ID:** `{user_id}`\n"
                  f"📦 **Channel:** `{ch_id}`\n"
                  f"💵 **Amount:** ₹{details['price']}",
             reply_markup=InlineKeyboardMarkup(admin_keyboard),
@@ -221,8 +217,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         _, target_user_id, ch_id = data.split("_")
         target_user_id = int(target_user_id)
         
+        # Remove from pending
+        pending_payments.pop(target_user_id, None)
+
         details = managed_channels[ch_id]
         days = details["days"]
+        price = details["price"]
         now = datetime.now()
         expiry = now + timedelta(days=days)
 
@@ -231,7 +231,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         subscriptions[target_user_id][ch_id] = {
             "expiry": expiry,
-            "start_date": now
+            "start_date": now,
+            "price_paid": price
         }
 
         try:
@@ -243,25 +244,22 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(
                 chat_id=target_user_id,
                 text=f"🎉 **Payment Approved!** Access granted until {expiry.strftime('%Y-%m-%d %H:%M')}.\n"
-                     f"💡 Ab aap `/video` command bhej kar direct videos access kar sakte hain!\n\n"
-                     f"🔗 **Your single-use invite link:** {invite_link.invite_link}",
+                     f"💡 Aap `/video` command bhej kar videos access kar sakte hain!\n\n"
+                     f"🔗 **Your invite link:** {invite_link.invite_link}",
                 parse_mode="Markdown",
                 protect_content=True
             )
-            await query.edit_message_text(text=f"✅ Approved successfully for user `{target_user_id}`!", parse_mode="Markdown")
+            await query.edit_message_text(text=f"✅ Approved for user `{target_user_id}`!", parse_mode="Markdown")
         except Exception as e:
-            await query.edit_message_text(text=f"❌ Error generating invite link: {e}")
+            await query.edit_message_text(text=f"❌ Error: {e}")
 
     elif data.startswith("rej_") and user_id == ADMIN_USER_ID:
         _, target_user_id = data.split("_")
         target_user_id = int(target_user_id)
+        pending_payments.pop(target_user_id, None)
         
-        await context.bot.send_message(
-            chat_id=target_user_id,
-            text="❌ Your payment verification was rejected by the admin.",
-            protect_content=True
-        )
-        await query.edit_message_text(text=f"❌ Payment rejected for user `{target_user_id}`.")
+        await context.bot.send_message(chat_id=target_user_id, text="❌ Your payment verification was rejected.", protect_content=True)
+        await query.edit_message_text(text=f"❌ Rejected user `{target_user_id}`.")
 
     elif data == "check_status":
         user_subs = subscriptions.get(user_id, {})
@@ -281,11 +279,56 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id=user_id, text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown", protect_content=True)
 
     elif data == "admin_panel" and user_id == ADMIN_USER_ID:
+        now = datetime.now()
+        total_active = sum(1 for u_subs in subscriptions.values() for info in u_subs.values() if info["expiry"] > now)
+        
+        # Earnings calculation (Daily & Monthly)
+        daily_rev = sum(info["price_paid"] for u_subs in subscriptions.values() for info in u_subs.values() if info["start_date"].date() == now.date())
+        monthly_rev = sum(info["price_paid"] for u_subs in subscriptions.values() for info in u_subs.values() if info["start_date"].month == now.month and info["start_date"].year == now.year)
+
         keyboard = [
+            [InlineKeyboardButton("📋 View Subscribers List", callback_data="admin_sub_list")],
+            [InlineKeyboardButton("➕ Add/Update Channel Plan", callback_data="admin_channel_help")],
+            [InlineKeyboardButton("🎁 Give Free Entry", callback_data="admin_free_help")],
             [InlineKeyboardButton("🔙 Back to Main", callback_data="main_menu")]
         ]
         await query.edit_message_text(
-            text=f"⚙️ **Admin Control Panel**\n\nActive Managed Channels: {len(managed_channels)}\nStored Videos in Queue: {len(daily_videos_list)}\n\n*(Note: Videos add karne ke liye seedha bot chat mein video bhej dein)*",
+            text=f"⚙️ **Admin Control Panel**\n\n"
+                 f"🟢 Active Subscribers: {total_active}\n"
+                 f"📅 Today's Revenue: ₹{daily_rev}\n"
+                 f"📊 This Month's Revenue: ₹{monthly_rev}\n"
+                 f"📦 Stored Videos: {len(daily_videos_list)}",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown"
+        )
+
+    elif data == "admin_sub_list" and user_id == ADMIN_USER_ID:
+        keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="admin_panel")]]
+        text = "📋 **Subscribers Database:**\n\n"
+        
+        if not subscriptions:
+            text += "No records found."
+        else:
+            now = datetime.now()
+            for uid, u_subs in subscriptions.items():
+                for ch_id, info in u_subs.items():
+                    status = "🟢 Active" if info["expiry"] > now else "🔴 Expired"
+                    text += f"User `{uid}` | Ch: `{ch_id}` | {status} | Exp: {info['expiry'].strftime('%Y-%m-%d')}\n"
+
+        await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+    elif data == "admin_channel_help" and user_id == ADMIN_USER_ID:
+        keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="admin_panel")]]
+        await query.edit_message_text(
+            text="To add or update a channel plan price/days, use command:\n`/addchannel -100xxxxxxxxxx Channel_Name Price Days`\n\nExample: `/addchannel -1004487998151 VIP_Pass 49 30`",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown"
+        )
+
+    elif data == "admin_free_help" and user_id == ADMIN_USER_ID:
+        keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="admin_panel")]]
+        await query.edit_message_text(
+            text="To give free entry without payment, use command:\n`/giveaccess user_id channel_id days`\n\nExample: `/giveaccess 6699987859 -1004487998151 30`",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
@@ -306,7 +349,47 @@ async def add_channel_command(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     ch_id, name, price, days = args[0], args[1], int(args[2]), int(args[3])
     managed_channels[ch_id] = {"name": name, "price": price, "days": days}
-    await update.message.reply_text(f"Successfully added/updated {name} with price ₹{price} for {days} days!")
+    await update.message.reply_text(f"✅ Plan updated successfully!\nChannel: {name}\nPrice: ₹{price}\nValidity: {days} Days")
+
+
+async def give_access_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin bina paise ke kisi ko bhi direct entry/access de sakta hai"""
+    if update.effective_user.id != ADMIN_USER_ID:
+        return
+    
+    args = context.args
+    if len(args) != 3:
+        await update.message.reply_text("Usage: /giveaccess user_id channel_id days")
+        return
+
+    target_user_id, ch_id, days = int(args[0]), args[1], int(args[2])
+    now = datetime.now()
+    expiry = now + timedelta(days=days)
+
+    if target_user_id not in subscriptions:
+        subscriptions[target_user_id] = {}
+    
+    subscriptions[target_user_id][ch_id] = {
+        "expiry": expiry,
+        "start_date": now,
+        "price_paid": 0  # Free entry
+    }
+
+    try:
+        invite_link = await context.bot.create_chat_invite_link(
+            chat_id=ch_id,
+            member_limit=1,
+            expire_date=int(expiry.timestamp()),
+        )
+        await context.bot.send_message(
+            chat_id=target_user_id,
+            text=f"🎁 **Free Access Granted by Admin!** Valid until {expiry.strftime('%Y-%m-%d %H:%M')}.\n\n"
+                 f"🔗 **Your invite link:** {invite_link.invite_link}",
+            protect_content=True
+        )
+        await update.message.reply_text(f"✅ Successfully granted free access to user `{target_user_id}` for {days} days!")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error generating invite link: {e}")
 
 
 async def check_subscriptions_job(context: ContextTypes.DEFAULT_TYPE):
@@ -328,21 +411,25 @@ async def check_subscriptions_job(context: ContextTypes.DEFAULT_TYPE):
 
 
 def main():
+    if not TOKEN:
+        raise ValueError("No TOKEN found in environment variables!")
+
     app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("video", video_command))
     app.add_handler(CommandHandler("addchannel", add_channel_command))
+    app.add_handler(CommandHandler("giveaccess", give_access_command))
     app.add_handler(MessageHandler(filters.VIDEO | filters.Document.ALL, handle_admin_upload))
     app.add_handler(CallbackQueryHandler(button_handler))
 
     job_queue = app.job_queue
     job_queue.run_repeating(check_subscriptions_job, interval=3600, first=10)
 
-    print("Direct Video Delivery Bot is running...")
+    print("Advanced Subscription Bot with Admin Controls is running...")
     app.run_polling()
 
 
 if __name__ == "__main__":
     main()
-        
+    
