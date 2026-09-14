@@ -295,8 +295,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         help_text = (
             "💬 **Customer Support & Help:**\n\n"
             "Agar aapko payment ya subscription mein koi bhi samasya aa rahi hai, toh aap seedha admin se sampark kar sakte hain:\n\n"
-            f"👤 **Admin ID:** `{ADMIN_USER_ID}`\n"
-            "Kripya apni payment ka screenshot ya details admin ko message karein."
+            f"👤 **Admin ID / Contact:** `{ADMIN_USER_ID}`\n"
+            "Kripya apni payment ka screenshot ya user ID admin ko message karein."
         )
         keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="main_menu")]]
         await query.edit_message_text(text=help_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
@@ -483,4 +483,4 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif data == "admin_free_help" and user_id == ADMIN_USER_ID:
-        keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="admin_pan
+        keyboard = [[InlineKeyboardButton("🔙 Back", callback_data=
