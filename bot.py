@@ -344,7 +344,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "2️⃣ After payment, click the **'I Have Paid'** button below."
         )
         
-        qr_image_url = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=upi://pay?pa={UPI_ID}&am=" + str(details['price'])
+        qr_image_url = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=upi://pay?pa={UPI_ID}&am={details['price']}"
 
         keyboard = [
             [InlineKeyboardButton("✅ I Have Paid", callback_data=f"paid_{ch_id}")],
@@ -483,4 +483,95 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif data == "admin_free_help" and user_id == ADMIN_USER_ID:
-        keyboard = [[InlineKeyboardButton("🔙 Back", callback_data=
+        keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="admin
+                                              elif data == "admin_free_help" and user_id == ADMIN_USER_ID:
+        keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="admin_panel")]]
+        await query.edit_message_text(
+            text="To give free entry without payment, send command in chat:\n`/giveaccess user_id channel_id days`",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown"
+        )
+
+    elif data == "main_menu":
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+        await show_main_menu(update, context, edit=False)
+
+
+async def add_channel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_USER_ID:
+        return
+    
+    args = context.args
+    if len(args) != 4:
+        await update.message.reply_text("Usage: /addchannel -100xxxxxxxxxx Channel_Name Price Days")
+        return
+
+    ch_id, name, price, days = args[0], args[1], int(args[2]), int(args[3])
+    db_save_channel(ch_id, name, price, days)
+    await update.message.reply_text(f"✅ Channel Plan saved to Database!\nChannel: {name}\nPrice: ₹{price}\nValidity: {days} Days")
+
+
+async def give_access_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_USER_ID:
+        return
+    
+    args = context.args
+    if len(args) != 3:
+        await update.message.reply_text("Usage: /giveaccess user_id channel_id days")
+        return
+
+    target_user_id, ch_id, days = int(args[0]), args[1], int(args[2])
+    now = datetime.now()
+    
+    existing = db_get_subscription(target_user_id, ch_id)
+    if existing and existing["expiry"] > now:
+        expiry = existing["expiry"] + timedelta(days=days)
+    else:
+        expiry = now + timedelta(days=days)
+
+    db_save_subscription(target_user_id, ch_id, expiry, now, 0)
+
+    try:
+        await context.bot.send_message(
+            chat_id=target_user_id,
+            text=f"🎁 **Access Granted by Admin!** Valid until {expiry.strftime('%Y-%m-%d %H:%M')}.\n\n🎬 **Aapki Aaj ki Video:**",
+            protect_content=True
+        )
+        
+        videos = load_videos_from_file()
+        if videos:
+            vid = videos[-1]
+            if vid["type"] == "video":
+                await context.bot.send_video(chat_id=target_user_id, video=vid["file_id"], caption=vid.get("caption", ""), protect_content=True)
+            elif vid["type"] == "document":
+                await context.bot.send_document(chat_id=target_user_id, document=vid["file_id"], caption=vid.get("caption", ""), protect_content=True)
+
+        await update.message.reply_text(f"✅ Successfully granted access and sent today's video to user `{target_user_id}`!")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error sending video: {e}")
+
+
+def main():
+    if not TOKEN:
+        raise ValueError("No TOKEN found in environment variables!")
+
+    app = ApplicationBuilder().token(TOKEN).build()
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("video", video_command))
+    app.add_handler(CommandHandler("sendvideo", send_specific_video_command))
+    app.add_handler(CommandHandler("addchannel", add_channel_command))
+    app.add_handler(CommandHandler("giveaccess", give_access_command))
+    app.add_handler(MessageHandler(filters.UpdateType.CHANNEL_POST, handle_storage_channel_post))
+    app.add_handler(CallbackQueryHandler(button_handler))
+
+    print("Complete Dynamic Bot is running...")
+    app.run_polling()
+
+
+if __name__ == "__main__":
+    main()
+                     
