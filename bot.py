@@ -2,6 +2,7 @@ import os
 import json
 import logging
 from datetime import datetime, timedelta
+from urllib.parse import quote
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
@@ -381,6 +382,16 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         details = managed_channels[ch_id]
+        
+        # Check if UPI_ID is configured
+        if not UPI_ID:
+            await query.edit_message_text(
+                text="❌ **UPI Payment is not configured!**\n\nPlease contact admin for payment details.",
+                parse_mode="Markdown"
+            )
+            logging.error("UPI_ID is not set in environment variables")
+            return
+        
         qr_caption = (
             f"🛍️ **Plan:** {details['name']} ({details['days']} Days)\n"
             f"💰 **Amount:** ₹{details['price']}\n\n"
@@ -388,7 +399,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "2️⃣ After payment, click the **'I Have Paid'** button below."
         )
         
-        qr_image_url = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=upi://pay?pa={UPI_ID}&am={details['price']}"
+        # Generate proper UPI string with URL encoding
+        upi_string = f"upi://pay?pa={quote(UPI_ID)}&pn=Quick-Deals&am={details['price']}&tn=Subscription%20Payment"
+        qr_image_url = f"https://api.qrserver.com/v1/create-qr-code/?size=400x400&data={quote(upi_string)}"
 
         keyboard = [
             [InlineKeyboardButton("✅ I Have Paid", callback_data=f"paid_{ch_id}")],
@@ -400,14 +413,24 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
 
-        await context.bot.send_photo(
-            chat_id=user_id,
-            photo=qr_image_url,
-            caption=qr_caption,
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown",
-            protect_content=True
-        )
+        try:
+            await context.bot.send_photo(
+                chat_id=user_id,
+                photo=qr_image_url,
+                caption=qr_caption,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="Markdown",
+                protect_content=True
+            )
+        except Exception as e:
+            logging.error(f"Error generating QR code: {e}")
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=f"❌ **Error generating QR code!**\n\nPlease contact admin:\nUPI: `{UPI_ID}`\nAmount: ₹{details['price']}",
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                protect_content=True
+            )
 
     elif data.startswith("paid_"):
         ch_id = data.replace("paid_", "")
