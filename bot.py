@@ -398,7 +398,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data.startswith("app_"):
         # Approve action - only admin allowed
-        if not ADMIN_USER_ID and user_id != ADMIN_USER_ID:
+        if not ADMIN_USER_ID or user_id != ADMIN_USER_ID:
             await query.answer("Access denied.", show_alert=True)
             return
         _, target_user_id, ch_id = data.split("_")
@@ -439,7 +439,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data.startswith("rej_"):
         # Reject action - only admin allowed
-        if not ADMIN_USER_ID and user_id != ADMIN_USER_ID:
+        if not ADMIN_USER_ID or user_id != ADMIN_USER_ID:
             await query.answer("Access denied.", show_alert=True)
             return
         _, target_user_id = data.split("_")
@@ -449,7 +449,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(text=f"❌ Rejected user `{target_user_id}`.")
 
     elif data == "admin_panel":
-        if not ADMIN_USER_ID and user_id != ADMIN_USER_ID:
+        if not ADMIN_USER_ID or user_id != ADMIN_USER_ID:
             await query.answer("Access denied.", show_alert=True)
             return
         keyboard = [
@@ -465,7 +465,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif data == "admin_sub_list":
-        if not ADMIN_USER_ID and user_id != ADMIN_USER_ID:
+        if not ADMIN_USER_ID or user_id != ADMIN_USER_ID:
             await query.answer("Access denied.", show_alert=True)
             return
         keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="admin_panel")]]
@@ -491,7 +491,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
     elif data == "admin_channel_help":
-        if not ADMIN_USER_ID and user_id != ADMIN_USER_ID:
+        if not ADMIN_USER_ID or user_id != ADMIN_USER_ID:
             await query.answer("Access denied.", show_alert=True)
             return
         keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="admin_panel")]]
@@ -502,7 +502,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif data == "admin_free_help":
-        if not ADMIN_USER_ID and user_id != ADMIN_USER_ID:
+        if not ADMIN_USER_ID or user_id != ADMIN_USER_ID:
             await query.answer("Access denied.", show_alert=True)
             return
         keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="admin_panel")]]
