@@ -474,7 +474,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
-    elif data == "admin_channel_help" and user_id == ADMIN_USER_ID:
+     elif data == "admin_channel_help" and user_id == ADMIN_USER_ID:
         keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="admin_panel")]]
         await query.edit_message_text(
             text="To add or update a channel plan price/days, send command in chat:\n`/addchannel -100xxxxxxxxxx Channel_Name Price Days`",
@@ -482,14 +482,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
 
-        elif data == "admin_free_help" and user_id == ADMIN_USER_ID:
+    elif data == "admin_free_help" and user_id == ADMIN_USER_ID:
         keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="admin_panel")]]
         await query.edit_message_text(
             text="To give free entry without payment, send command in chat:\n`/giveaccess user_id channel_id days`",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
-    
+        
     elif data == "main_menu":
         try:
             await query.message.delete()
