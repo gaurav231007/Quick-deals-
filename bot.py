@@ -274,7 +274,7 @@ async def handle_storage_channel_post(update: Update, context: ContextTypes.DEFA
 
 
 async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle support messages from users"""
+    """Handle support messages from users - safe markdown handling"""
     user_id = update.effective_user.id
     
     # Ignore messages from admin
@@ -288,23 +288,25 @@ async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     # Get user info
     first_name = update.effective_user.first_name or "Unknown"
     username = update.effective_user.username or "No username"
-    message_text = update.message.text
+    message_text = update.message.text or ""
     
-    # Forward message to admin
+    # Forward message to admin - plain text to avoid markdown parsing errors
     if ADMIN_USER_ID:
         support_message = (
-            f"📨 **New Support Message:**\n\n"
-            f"👤 **Name:** {first_name}\n"
-            f"📱 **Username:** @{username}\n"
-            f"🆔 **User ID:** `{user_id}`\n\n"
-            f"💬 **Message:**\n{message_text}"
+            f"New Support Message:\n\n"
+            f"Name: {first_name}\n"
+            f"Username: @{username}\n"
+            f"User ID: {user_id}\n\n"
+            f"Message:\n{message_text}"
         )
-        await context.bot.send_message(
-            chat_id=ADMIN_USER_ID,
-            text=support_message,
-            parse_mode="Markdown",
-            protect_content=True
-        )
+        try:
+            await context.bot.send_message(
+                chat_id=ADMIN_USER_ID,
+                text=support_message,
+                protect_content=True
+            )
+        except Exception as e:
+            logging.error(f"Error forwarding support message to admin: {e}")
     
     # Send confirmation to user
     await update.message.reply_text(
@@ -314,6 +316,43 @@ async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     # Reset the waiting flag
     context.user_data["waiting_for_support"] = False
+
+
+async def reply_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin command to reply directly to a user by ID"""
+    # Restrict to admin only
+    if not ADMIN_USER_ID or update.effective_user.id != ADMIN_USER_ID:
+        await update.message.reply_text("❌ You do not have permission to use this command.")
+        return
+    
+    args = context.args
+    if len(args) < 2:
+        await update.message.reply_text("Usage: /reply user_id message_text\nExample: /reply 123456789 Hello user, your payment is approved!")
+        return
+    
+    try:
+        target_user_id = int(args[0])
+        reply_text = " ".join(args[1:])
+        
+        if not reply_text.strip():
+            await update.message.reply_text("❌ Message text cannot be empty.")
+            return
+        
+        # Send message to user (plain text to avoid markdown issues)
+        await context.bot.send_message(
+            chat_id=target_user_id,
+            text=reply_text,
+            protect_content=True
+        )
+        
+        await update.message.reply_text(f"✅ Message sent successfully to user {target_user_id}!")
+        logging.info(f"Admin {update.effective_user.id} sent message to user {target_user_id}")
+        
+    except ValueError:
+        await update.message.reply_text("❌ Invalid user ID. Please provide a valid numeric user ID.")
+    except Exception as e:
+        logging.error(f"Error in reply_command: {e}")
+        await update.message.reply_text(f"❌ Error sending message: {e}")
 
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -399,9 +438,18 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "2️⃣ After payment, click the **'I Have Paid'** button below."
         )
         
-        # FIXED: Generate proper UPI string - build complete string first, then encode once
-        upi_string = f"upi://pay?pa={UPI_ID}&pn=Quick-Deals&am={details['price']}&tn=Subscription%20Payment"
-        qr_image_url = f"https://api.qrserver.com/v1/create-qr-code/?size=400x400&data={quote(upi_string)}"
+        # VERIFIED: Generate proper UPI string - build complete string first, then encode once
+        try:
+            upi_string = f"upi://pay?pa={UPI_ID}&pn=Quick-Deals&am={details['price']}&tn=Subscription%20Payment"
+            qr_image_url = f"https://api.qrserver.com/v1/create-qr-code/?size=400x400&data={quote(upi_string)}"
+            logging.info(f"QR URL generated successfully for user {user_id}, amount: {details['price']}")
+        except Exception as e:
+            logging.error(f"Error constructing UPI string or QR URL: {e}")
+            await query.edit_message_text(
+                text=f"❌ **Error generating QR code!**\n\nPlease contact admin:\nUPI: `{UPI_ID}`\nAmount: ₹{details['price']}",
+                parse_mode="Markdown"
+            )
+            return
 
         keyboard = [
             [InlineKeyboardButton("✅ I Have Paid", callback_data=f"paid_{ch_id}")],
@@ -423,18 +471,22 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 protect_content=True
             )
         except Exception as e:
-            logging.error(f"Error generating QR code: {e}")
-            await context.bot.send_message(
-                chat_id=user_id,
-                text=f"❌ **Error generating QR code!**\n\nPlease contact admin:\nUPI: `{UPI_ID}`\nAmount: ₹{details['price']}",
-                parse_mode="Markdown",
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                protect_content=True
-            )
+            logging.error(f"Error sending QR code photo: {e}")
+            # Fallback: send message with payment details
+            try:
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=f"❌ **Error generating QR code!**\n\nPlease contact admin:\nUPI: `{UPI_ID}`\nAmount: ₹{details['price']}",
+                    parse_mode="Markdown",
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    protect_content=True
+                )
+            except Exception as fallback_error:
+                logging.error(f"Fallback message also failed: {fallback_error}")
 
     elif data.startswith("paid_"):
         ch_id = data.replace("paid_", "")
-        details = managed_channels[ch_id]
+        details = managed_channels.get(ch_id, {})
         
         try:
             await query.edit_message_caption(
@@ -451,16 +503,19 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     InlineKeyboardButton("❌ Reject", callback_data=f"rej_{user_id}")
                 ]
             ]
-            await context.bot.send_message(
-                chat_id=ADMIN_USER_ID,
-                text=f"🔔 **New Payment Verification Request!**\n\n"
-                     f"👤 **User ID:** `{user_id}`\n"
-                     f"📦 **Channel ID:** `{ch_id}`\n"
-                     f"💵 **Amount:** ₹{details['price']}",
-                reply_markup=InlineKeyboardMarkup(admin_keyboard),
-                parse_mode="Markdown",
-                protect_content=True
-            )
+            try:
+                await context.bot.send_message(
+                    chat_id=ADMIN_USER_ID,
+                    text=f"🔔 **New Payment Verification Request!**\n\n"
+                         f"👤 **User ID:** `{user_id}`\n"
+                         f"📦 **Channel ID:** `{ch_id}`\n"
+                         f"💵 **Amount:** ₹{details.get('price', 'N/A')}",
+                    reply_markup=InlineKeyboardMarkup(admin_keyboard),
+                    parse_mode="Markdown",
+                    protect_content=True
+                )
+            except Exception as e:
+                logging.error(f"Error sending admin notification: {e}")
 
     elif data.startswith("app_"):
         # Approve action - only admin allowed
@@ -651,6 +706,7 @@ def main():
     app.add_handler(CommandHandler("sendvideo", send_specific_video_command))
     app.add_handler(CommandHandler("addchannel", add_channel_command))
     app.add_handler(CommandHandler("giveaccess", give_access_command))
+    app.add_handler(CommandHandler("reply", reply_command))
     app.add_handler(MessageHandler(filters.UpdateType.CHANNEL_POST, handle_storage_channel_post))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_user_message))
     app.add_handler(CallbackQueryHandler(button_handler))
