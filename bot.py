@@ -14,7 +14,8 @@ from telegram.ext import (
 from supabase import create_client, Client
 
 TOKEN = os.getenv("TOKEN")
-ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID"))
+ADMIN_USER_ID_STR = os.getenv("ADMIN_USER_ID")
+ADMIN_USER_ID = int(ADMIN_USER_ID_STR) if ADMIN_USER_ID_STR else None
 UPI_ID = os.getenv("UPI_ID")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY") or os.getenv("SUPABASE_SECRET_KEY")
@@ -152,7 +153,7 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, edi
     user_id = update.effective_user.id if update.effective_user else update.callback_query.from_user.id
     managed_channels = db_get_channels()
     
-    if user_id == ADMIN_USER_ID:
+    if ADMIN_USER_ID and user_id == ADMIN_USER_ID:
         text = "👑 **Admin Panel / Status:**\nAapke paas Admin access hai."
         keyboard = [
             [InlineKeyboardButton("🎬 Get Today's Video", callback_data="get_videos_info")],
@@ -198,7 +199,7 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE, edi
 async def video_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     
-    if user_id != ADMIN_USER_ID:
+    if not ADMIN_USER_ID or user_id != ADMIN_USER_ID:
         active_subs = db_get_all_active_subscriptions(user_id)
         if not active_subs:
             await update.message.reply_text(
@@ -226,7 +227,7 @@ async def video_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def send_specific_video_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_USER_ID:
+    if not ADMIN_USER_ID or update.effective_user.id != ADMIN_USER_ID:
         return
     
     args = context.args
@@ -302,7 +303,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(text=help_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
     elif data == "get_videos_info":
-        if user_id != ADMIN_USER_ID:
+        if not ADMIN_USER_ID or user_id != ADMIN_USER_ID:
             active_subs = db_get_all_active_subscriptions(user_id)
             if not active_subs:
                 await query.message.reply_text("❌ **Aapka koi active subscription nahi hai!** Kripya pehle plan buy karein.", parse_mode="Markdown")
@@ -377,26 +378,27 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
 
-        admin_keyboard = [
-            [
-                InlineKeyboardButton("✅ Approve", callback_data=f"app_{user_id}_{ch_id}"),
-                InlineKeyboardButton("❌ Reject", callback_data=f"rej_{user_id}")
+        if ADMIN_USER_ID:
+            admin_keyboard = [
+                [
+                    InlineKeyboardButton("✅ Approve", callback_data=f"app_{user_id}_{ch_id}"),
+                    InlineKeyboardButton("❌ Reject", callback_data=f"rej_{user_id}")
+                ]
             ]
-        ]
-        await context.bot.send_message(
-            chat_id=ADMIN_USER_ID,
-            text=f"🔔 **New Payment Verification Request!**\n\n"
-                 f"👤 **User ID:** `{user_id}`\n"
-                 f"📦 **Channel ID:** `{ch_id}`\n"
-                 f"💵 **Amount:** ₹{details['price']}",
-            reply_markup=InlineKeyboardMarkup(admin_keyboard),
-            parse_mode="Markdown",
-            protect_content=True
-        )
+            await context.bot.send_message(
+                chat_id=ADMIN_USER_ID,
+                text=f"🔔 **New Payment Verification Request!**\n\n"
+                     f"👤 **User ID:** `{user_id}`\n"
+                     f"📦 **Channel ID:** `{ch_id}`\n"
+                     f"💵 **Amount:** ₹{details['price']}",
+                reply_markup=InlineKeyboardMarkup(admin_keyboard),
+                parse_mode="Markdown",
+                protect_content=True
+            )
 
     elif data.startswith("app_"):
         # Approve action - only admin allowed
-        if user_id != ADMIN_USER_ID:
+        if not ADMIN_USER_ID or user_id != ADMIN_USER_ID:
             await query.answer("Access denied.", show_alert=True)
             return
         _, target_user_id, ch_id = data.split("_")
@@ -437,7 +439,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data.startswith("rej_"):
         # Reject action - only admin allowed
-        if user_id != ADMIN_USER_ID:
+        if not ADMIN_USER_ID or user_id != ADMIN_USER_ID:
             await query.answer("Access denied.", show_alert=True)
             return
         _, target_user_id = data.split("_")
@@ -447,7 +449,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(text=f"❌ Rejected user `{target_user_id}`.")
 
     elif data == "admin_panel":
-        if user_id != ADMIN_USER_ID:
+        if not ADMIN_USER_ID or user_id != ADMIN_USER_ID:
             await query.answer("Access denied.", show_alert=True)
             return
         keyboard = [
@@ -463,7 +465,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif data == "admin_sub_list":
-        if user_id != ADMIN_USER_ID:
+        if not ADMIN_USER_ID or user_id != ADMIN_USER_ID:
             await query.answer("Access denied.", show_alert=True)
             return
         keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="admin_panel")]]
@@ -489,7 +491,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
     elif data == "admin_channel_help":
-        if user_id != ADMIN_USER_ID:
+        if not ADMIN_USER_ID or user_id != ADMIN_USER_ID:
             await query.answer("Access denied.", show_alert=True)
             return
         keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="admin_panel")]]
@@ -500,7 +502,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     elif data == "admin_free_help":
-        if user_id != ADMIN_USER_ID:
+        if not ADMIN_USER_ID or user_id != ADMIN_USER_ID:
             await query.answer("Access denied.", show_alert=True)
             return
         keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="admin_panel")]]
@@ -519,7 +521,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def add_channel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_USER_ID:
+    if not ADMIN_USER_ID or update.effective_user.id != ADMIN_USER_ID:
         return
     
     args = context.args
@@ -533,7 +535,7 @@ async def add_channel_command(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def give_access_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_USER_ID:
+    if not ADMIN_USER_ID or update.effective_user.id != ADMIN_USER_ID:
         return
     
     args = context.args
