@@ -272,6 +272,49 @@ async def handle_storage_channel_post(update: Update, context: ContextTypes.DEFA
             logging.info(f"New document captured. Total stored: {len(videos)}")
 
 
+async def handle_user_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle support messages from users"""
+    user_id = update.effective_user.id
+    
+    # Ignore messages from admin
+    if ADMIN_USER_ID and user_id == ADMIN_USER_ID:
+        return
+    
+    # Check if user is waiting for support
+    if not context.user_data.get("waiting_for_support", False):
+        return
+    
+    # Get user info
+    first_name = update.effective_user.first_name or "Unknown"
+    username = update.effective_user.username or "No username"
+    message_text = update.message.text
+    
+    # Forward message to admin
+    if ADMIN_USER_ID:
+        support_message = (
+            f"📨 **New Support Message:**\n\n"
+            f"👤 **Name:** {first_name}\n"
+            f"📱 **Username:** @{username}\n"
+            f"🆔 **User ID:** `{user_id}`\n\n"
+            f"💬 **Message:**\n{message_text}"
+        )
+        await context.bot.send_message(
+            chat_id=ADMIN_USER_ID,
+            text=support_message,
+            parse_mode="Markdown",
+            protect_content=True
+        )
+    
+    # Send confirmation to user
+    await update.message.reply_text(
+        "✅ Aapka message admin tak pahuncha diya gaya hai. Admin jald hi aapko reply dega.",
+        protect_content=True
+    )
+    
+    # Reset the waiting flag
+    context.user_data["waiting_for_support"] = False
+
+
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -295,12 +338,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "help_support":
         help_text = (
             "💬 **Customer Support & Help:**\n\n"
-            "Agar aapko payment ya subscription mein koi bhi samasya aa rahi hai, toh aap seedha admin se sampark kar sakte hain:\n\n"
-            f"👤 **Admin ID / Contact:** `{ADMIN_USER_ID}`\n"
-            "Kripya apni payment ka screenshot ya user ID admin ko message karein."
+            "Agar aapko payment ya subscription mein koi bhi samasya aa rahi hai, toh aap seedha admin se sampark kar sakte hain.\n\n"
+            "Niche likha gaya message type karein aur admin ko bhej denge:"
         )
         keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="main_menu")]]
         await query.edit_message_text(text=help_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        context.user_data["waiting_for_support"] = True
 
     elif data == "get_videos_info":
         if not ADMIN_USER_ID or user_id != ADMIN_USER_ID:
@@ -586,6 +629,7 @@ def main():
     app.add_handler(CommandHandler("addchannel", add_channel_command))
     app.add_handler(CommandHandler("giveaccess", give_access_command))
     app.add_handler(MessageHandler(filters.UpdateType.CHANNEL_POST, handle_storage_channel_post))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_user_message))
     app.add_handler(CallbackQueryHandler(button_handler))
 
     print("Complete Dynamic Bot is running...")
