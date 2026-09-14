@@ -394,7 +394,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             protect_content=True
         )
 
-    elif data.startswith("app_") and user_id == ADMIN_USER_ID:
+    elif data.startswith("app_"):
+        # Approve action - only admin allowed
+        if user_id != ADMIN_USER_ID:
+            await query.answer("Access denied.", show_alert=True)
+            return
         _, target_user_id, ch_id = data.split("_")
         target_user_id = int(target_user_id)
         
@@ -431,14 +435,21 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             await query.edit_message_text(text=f"❌ Error: {e}")
 
-    elif data.startswith("rej_") and user_id == ADMIN_USER_ID:
+    elif data.startswith("rej_"):
+        # Reject action - only admin allowed
+        if user_id != ADMIN_USER_ID:
+            await query.answer("Access denied.", show_alert=True)
+            return
         _, target_user_id = data.split("_")
         target_user_id = int(target_user_id)
         
         await context.bot.send_message(chat_id=target_user_id, text="❌ Your payment verification was rejected.", protect_content=True)
         await query.edit_message_text(text=f"❌ Rejected user `{target_user_id}`.")
 
-    elif data == "admin_panel" and user_id == ADMIN_USER_ID:
+    elif data == "admin_panel":
+        if user_id != ADMIN_USER_ID:
+            await query.answer("Access denied.", show_alert=True)
+            return
         keyboard = [
             [InlineKeyboardButton("📋 View Subscribers List", callback_data="admin_sub_list")],
             [InlineKeyboardButton("➕ Add/Update Channel Plan", callback_data="admin_channel_help")],
@@ -451,7 +462,10 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
 
-    elif data == "admin_sub_list" and user_id == ADMIN_USER_ID:
+    elif data == "admin_sub_list":
+        if user_id != ADMIN_USER_ID:
+            await query.answer("Access denied.", show_alert=True)
+            return
         keyboard = [[InlineKeyboardButton("🔙 Back", callback_data="admin_panel")]]
         subs = db_get_all_subscriptions()
         text = "📋 **Subscribers List (Name & ID):**\n\n"
