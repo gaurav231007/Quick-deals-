@@ -399,8 +399,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "2️⃣ After payment, click the **'I Have Paid'** button below."
         )
         
-        # Generate proper UPI string with URL encoding
-        upi_string = f"upi://pay?pa={quote(UPI_ID)}&pn=Quick-Deals&am={details['price']}&tn=Subscription%20Payment"
+        # FIXED: Generate proper UPI string - build complete string first, then encode once
+        upi_string = f"upi://pay?pa={UPI_ID}&pn=Quick-Deals&am={details['price']}&tn=Subscription%20Payment"
         qr_image_url = f"https://api.qrserver.com/v1/create-qr-code/?size=400x400&data={quote(upi_string)}"
 
         keyboard = [
