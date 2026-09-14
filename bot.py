@@ -509,7 +509,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 parse_mode="Markdown",
                 protect_content=True
             )
-                      videos = load_videos_from_file()
+            videos = load_videos_from_file()
             if videos:
                 vid = videos[-1]
                 if vid["type"] == "video":
