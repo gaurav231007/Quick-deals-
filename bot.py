@@ -511,7 +511,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             await query.edit_message_text(text=f"Error: {e}")
 
-        elif data.startswith("rej_"):
+    elif data.startswith("rej_"):
         if not ADMIN_USER_ID or user_id != ADMIN_USER_ID:
             await query.answer("Access denied.", show_alert=True)
             return
