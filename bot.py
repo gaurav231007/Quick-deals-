@@ -248,7 +248,7 @@ async def send_specific_video_command(update: Update, context: ContextTypes.DEFA
         if vid["type"] == "video":
             await context.bot.send_video(chat_id=target_user_id, video=vid["file_id"], caption=vid.get("caption", "Specific Video from Admin"), protect_content=True)
         elif vid["type"] == "document":
-            await context.bot.send_document(chat_id=target_user_id, document=vid["file_id"], caption=vid.get("caption", "Specific Video from Admin"), protect_content=True)
+            await context.bot.send_document(chat_id=target_user_id, video=vid["file_id"], caption=vid.get("caption", "Specific Video from Admin"), protect_content=True)
             
         await update.message.reply_text(f"Successfully sent video index {vid_index} to user {target_user_id}!")
     except Exception as e:
@@ -511,9 +511,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             await query.edit_message_text(text=f"Error: {e}")
 
-    elif data.startswith("rej_"):
-        if not ADMIN_USER_ID or user_id != ADMIN_USER_ID:
-            await query.answer("elif data.startswith("rej_"):
+        elif data.startswith("rej_"):
         if not ADMIN_USER_ID or user_id != ADMIN_USER_ID:
             await query.answer("Access denied.", show_alert=True)
             return
@@ -668,4 +666,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-                      
+                                            
