@@ -511,6 +511,44 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             await query.edit_message_text(text=f"Error: {e}")
 
+ elif data.startswith("app_"):
+        if not ADMIN_USER_ID or user_id != ADMIN_USER_ID:
+            await query.answer("Access denied.", show_alert=True)
+            return
+        _, target_user_id, ch_id = data.split("_")
+        target_user_id = int(target_user_id)
+        
+        details = managed_channels.get(ch_id, {"days": 30, "price": 0})
+        days = details["days"]
+        price = details["price"]
+        now = datetime.now()
+        
+        existing = db_get_subscription(target_user_id, ch_id)
+        if existing and existing["expiry"] > now:
+            expiry = existing["expiry"] + timedelta(days=days)
+        else:
+            expiry = now + timedelta(days=days)
+
+        db_save_subscription(target_user_id, ch_id, expiry, now, price)
+
+        try:
+            await context.bot.send_message(
+                chat_id=target_user_id,
+                text=f"Payment Approved! Aapka subscription active ho gaya hai (Valid until: {expiry.strftime('%Y-%m-%d %H:%M')}).\n\nEk Aaj ki Video:",
+                protect_content=True
+            )
+            videos = load_videos_from_file()
+            if videos:
+                vid = videos[-1]
+                if vid["type"] == "video":
+                    await context.bot.send_video(chat_id=target_user_id, video=vid["file_id"], caption=vid.get("caption", ""), protect_content=True)
+                elif vid["type"] == "document":
+                    await context.bot.send_document(chat_id=target_user_id, video=vid["file_id"], caption=vid.get("caption", ""), protect_content=True)
+
+            await query.edit_message_text(text=f"Approved and today's video sent to user {target_user_id}!")
+        except Exception as e:
+            await query.edit_message_text(text=f"Error: {e}")
+
     elif data.startswith("rej_"):
         if not ADMIN_USER_ID or user_id != ADMIN_USER_ID:
             await query.answer("Access denied.", show_alert=True)
@@ -520,150 +558,3 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await context.bot.send_message(chat_id=target_user_id, text="Your payment verification was rejected.", protect_content=True)
         await query.edit_message_text(text=f"Rejected user {target_user_id}.")
-
-    elif data == "admin_panel":
-        if not ADMIN_USER_ID or user_id != ADMIN_USER_ID:
-            await query.answer("Access denied.", show_alert=True)
-            return
-        keyboard = [
-            [InlineKeyboardButton("View Subscribers List", callback_data="admin_sub_list")],
-            [InlineKeyboardButton("Add/Update Channel Plan", callback_data="admin_channel_help")],
-            [InlineKeyboardButton("Give Free Entry", callback_data="admin_free_help")],
-            [InlineKeyboardButton("Back to Main", callback_data="main_menu")]
-        ]
-        await query.edit_message_text(
-            text="Admin Control Panel\n\nManage channels, view subscribers, and grant access seamlessly.",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-
-    elif data == "admin_sub_list":
-        if not ADMIN_USER_ID or user_id != ADMIN_USER_ID:
-            await query.answer("Access denied.", show_alert=True)
-            return
-        keyboard = [[InlineKeyboardButton("Back", callback_data="admin_panel")]]
-        subs = db_get_all_subscriptions()
-        text = "Subscribers List (Name & ID):\n\n"
-        
-        if not subs:
-            text += "No active subscribers found."
-        else:
-            now = datetime.now()
-            for row in subs:
-                uid = row["user_id"]
-                status = "Active" if datetime.fromisoformat(row["expiry"]) > now else "Expired"
-                
-                try:
-                    chat_info = await context.bot.get_chat(uid)
-                    name = chat_info.first_name or "Unknown"
-                except Exception:
-                    name = "Unknown"
-                
-                text += f"Name: {name}\nID: {uid}\nCh: {row['channel_id']}\nStatus: {status}\nExp: {row['expiry'][:16]}\n\n"
-
-        await query.edit_message_text(text=text, reply_markup=InlineKeyboardMarkup(keyboard))
-
-    elif data == "admin_channel_help":
-        if not ADMIN_USER_ID or user_id != ADMIN_USER_ID:
-            await query.answer("Access denied.", show_alert=True)
-            return
-        keyboard = [[InlineKeyboardButton("Back", callback_data="admin_panel")]]
-        await query.edit_message_text(
-            text="To add or update a channel plan price/days, send command in chat:\n/addchannel -100xxxxxxxxxx Channel_Name Price Days",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-
-    elif data == "admin_free_help":
-        if not ADMIN_USER_ID or user_id != ADMIN_USER_ID:
-            await query.answer("Access denied.", show_alert=True)
-            return
-        keyboard = [[InlineKeyboardButton("Back", callback_data="admin_panel")]]
-        await query.edit_message_text(
-            text="To give free entry without payment, send command in chat:\n/giveaccess user_id channel_id days",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-    
-    elif data == "main_menu":
-        try:
-            await query.message.delete()
-        except Exception:
-            pass
-        await show_main_menu(update, context, edit=False)
-
-
-async def add_channel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not ADMIN_USER_ID or update.effective_user.id != ADMIN_USER_ID:
-        return
-    
-    args = context.args
-    if len(args) != 4:
-        await update.message.reply_text("Usage: /addchannel -100xxxxxxxxxx Channel_Name Price Days")
-        return
-
-    ch_id, name, price, days = args[0], args[1], int(args[2]), int(args[3])
-    db_save_channel(ch_id, name, price, days)
-    await update.message.reply_text(f"Channel Plan saved to Database!\nChannel: {name}\nPrice: {price}\nValidity: {days} Days")
-
-
-async def give_access_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not ADMIN_USER_ID or update.effective_user.id != ADMIN_USER_ID:
-        return
-    
-    args = context.args
-    if len(args) != 3:
-        await update.message.reply_text("Usage: /giveaccess user_id channel_id days")
-        return
-
-    target_user_id, ch_id, days = int(args[0]), args[1], int(args[2])
-    now = datetime.now()
-    
-    existing = db_get_subscription(target_user_id, ch_id)
-    if existing and existing["expiry"] > now:
-        expiry = existing["expiry"] + timedelta(days=days)
-    else:
-        expiry = now + timedelta(days=days)
-
-    db_save_subscription(target_user_id, ch_id, expiry, now, 0)
-
-    try:
-        await context.bot.send_message(
-            chat_id=target_user_id,
-            text=f"Access Granted by Admin! Valid until {expiry.strftime('%Y-%m-%d %H:%M')}.\n\nEk Aaj ki Video:",
-            protect_content=True
-        )
-        
-        videos = load_videos_from_file()
-        if videos:
-            vid = videos[-1]
-            if vid["type"] == "video":
-                await context.bot.send_video(chat_id=target_user_id, video=vid["file_id"], caption=vid.get("caption", ""), protect_content=True)
-            elif vid["type"] == "document":
-                await context.bot.send_document(chat_id=target_user_id, video=vid["file_id"], caption=vid.get("caption", ""), protect_content=True)
-
-        await update.message.reply_text(f"Successfully granted access and sent today's video to user {target_user_id}!")
-    except Exception as e:
-        await update.message.reply_text(f"Error sending video: {e}")
-
-
-def main():
-    if not TOKEN:
-        raise ValueError("No TOKEN found in environment variables!")
-
-    app = ApplicationBuilder().token(TOKEN).build()
-
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("video", video_command))
-    app.add_handler(CommandHandler("sendvideo", send_specific_video_command))
-    app.add_handler(CommandHandler("reply", reply_command))
-    app.add_handler(CommandHandler("addchannel", add_channel_command))
-    app.add_handler(CommandHandler("giveaccess", give_access_command))
-    app.add_handler(MessageHandler(filters.UpdateType.CHANNEL_POST, handle_storage_channel_post))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_user_message))
-    app.add_handler(CallbackQueryHandler(button_handler))
-
-    print("Complete Dynamic Bot is running...")
-    app.run_polling()
-
-
-if __name__ == "__main__":
-    main()
-                                            
